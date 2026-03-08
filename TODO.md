@@ -1,6 +1,29 @@
 # TODOs
 
+## Bugs
+- [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
+
+## `calmd` Daemon improvements
+- [ ] Implement custom KV caching for static system prompts.
+  - [ ] Check if we need to use `mlx_lm.generate_stream` to support this
+  - [ ] Ensure that the `clone cache state -> add user query part to prompt -> generate` flow works correctly.
+- [ ] Explore prompt prefilling benefits.
+- [ ] Speed up inference
+  - [x] Disable thinking, especially in Qwen-3.5 models.
+  - [ ] KV caching for static system prompts.
+  - [ ] Resuse prompt prefill across samples.
+  - [ ] Truncate / cap stdin for analysis use-case. (Possibly provide a flag / ENV var to override that)
 - [ ] Implement our own version of `mlx_lm.generate` for use in [mlx_backend.py](calmd/backend/mlx_backend.py).
   - Should be able to use `mlx_lm.generate_stream` just like `mlx_lm.generate`.
   - Should be able to verbose log stats to our own logger.
   - Should be able to intercept and early-exit when our custom stop tokens are encountered.
+- [ ] Auto-load and offload of models in `calmd` + auto-recover after crashes.
+- [ ] Make `calmd` auto-start on system boot + renice-able (give higher priority to CPU usage)
+
+## UX / DX improvements
+- [ ] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
+- [ ] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
+  - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
+- [ ] Add command sanity validation (e.g. check if flags are correct for MacOS versions of the tools). See [SPEC.md](SPEC.md)
+- [ ] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
+- [ ] Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
