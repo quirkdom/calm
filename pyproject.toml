@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "calm"
+version = "0.1.0"
+description = "CLI answers via language models with local daemon"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mlx-lm>=0.31.0",
+]
+
+[project.scripts]
+calm = "calm.cli:main"
+calmd = "calmd.daemon:main"
+
+[tool.setuptools]
+packages = ["calm", "calmd", "calmd.backend"]
+
+[dependency-groups]
+dev = []
