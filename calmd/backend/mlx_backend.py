@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, cast
 
+import mlx.core as mx
 from mlx.nn import Module
 from mlx_lm.tokenizer_utils import TokenizerWrapper
 
@@ -15,7 +16,10 @@ from .interface import InferenceBackend
 
 @dataclass(slots=True)
 class PromptState:
+    base_prompt: str
     prompt: str
+    prompt_cache: Any | None = None
+    rendered_suffix: str = ""
 
 
 class MLXBackend(InferenceBackend):
@@ -23,22 +27,60 @@ class MLXBackend(InferenceBackend):
         self.model: Module | None = None
         self.tokenizer: TokenizerWrapper | None = None
         self._generate_fn: Callable[..., str] | None = None
+        self._generate_step_fn: Callable[..., Any] | None = None
         self.last_metrics: dict[str, Any] = {}
         self._is_qwen35_model = False
 
     def load_model(self, model_path: str) -> None:
         from mlx_lm import generate, load  # type: ignore
+        from mlx_lm.generate import generate_step  # type: ignore
 
         # With default load params we expect a 2-tuple: (model, tokenizer).
         self.model, self.tokenizer = cast(
             tuple[Module, TokenizerWrapper], load(model_path)
         )
         self._generate_fn = generate
+        self._generate_step_fn = generate_step
         self._is_qwen35_model = _is_qwen35_model(model_path)
 
     def build_base_state(self, system_prompt: str) -> PromptState:
-        # Cache a reusable base prompt prefix for each mode.
-        return PromptState(prompt=f"{system_prompt}\n\n")
+        if (
+            self.model is None
+            or self.tokenizer is None
+            or self._generate_step_fn is None
+        ):
+            raise RuntimeError("Model is not loaded")
+
+        base_prompt = f"{system_prompt}\n\n"
+        prefill_text = base_prompt
+        rendered_suffix = ""
+        add_special_tokens = True
+
+        apply_chat_template = getattr(self.tokenizer, "apply_chat_template", None)
+        if self._is_qwen35_model and callable(apply_chat_template):
+            marker = "<calm_query_suffix_marker>"
+            rendered = apply_chat_template(
+                [{"role": "user", "content": f"{base_prompt}{marker}"}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+            if isinstance(rendered, str) and marker in rendered:
+                marker_idx = rendered.index(marker)
+                prefill_text = rendered[:marker_idx]
+                rendered_suffix = rendered[marker_idx + len(marker) :]
+                add_special_tokens = False
+
+        prefill_tokens = self.tokenizer.encode(
+            prefill_text, add_special_tokens=add_special_tokens
+        )
+        prompt_cache = self._prefill_prompt_cache(prefill_tokens)
+        return PromptState(
+            base_prompt=base_prompt,
+            prompt="",
+            prompt_cache=prompt_cache,
+            rendered_suffix=rendered_suffix,
+        )
 
     def clone_state(self, state: PromptState) -> PromptState:
         return copy.deepcopy(state)
@@ -64,14 +106,26 @@ class MLXBackend(InferenceBackend):
         if generate_fn is None:
             raise RuntimeError("Model is not loaded")
         started = time.perf_counter()
-        prompt = self._build_prompt(state.prompt)
-        output = generate_fn(
-            self.model,
-            self.tokenizer,
-            prompt=prompt,
-            verbose=verbose,
-            **base_kwargs,
-        )
+        if state.prompt_cache is not None:
+            continuation = f"{state.prompt}{state.rendered_suffix}"
+            prompt = self.tokenizer.encode(continuation, add_special_tokens=False)
+            output = generate_fn(
+                self.model,
+                self.tokenizer,
+                prompt=prompt,
+                prompt_cache=state.prompt_cache,
+                verbose=verbose,
+                **base_kwargs,
+            )
+        else:
+            prompt = self._build_prompt(f"{state.base_prompt}{state.prompt}")
+            output = generate_fn(
+                self.model,
+                self.tokenizer,
+                prompt=prompt,
+                verbose=verbose,
+                **base_kwargs,
+            )
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
         self.last_metrics = {
             "inference_ms": elapsed_ms,
@@ -102,6 +156,22 @@ class MLXBackend(InferenceBackend):
         except Exception:
             return raw_prompt
         return raw_prompt
+
+    def _prefill_prompt_cache(self, prompt_tokens: list[int]) -> list[Any]:
+        if self.model is None or self._generate_step_fn is None:
+            raise RuntimeError("Model is not loaded")
+        from mlx_lm.models.cache import make_prompt_cache  # type: ignore
+
+        prompt_cache = make_prompt_cache(self.model)
+        token_array = mx.array(prompt_tokens)
+        for _ in self._generate_step_fn(
+            token_array,
+            self.model,
+            max_tokens=0,
+            prompt_cache=prompt_cache,
+        ):
+            pass
+        return prompt_cache
 
 
 def _normalize_stop_sequences(raw: Any) -> list[str]:
@@ -150,17 +220,22 @@ class RuleBasedFallbackBackend(InferenceBackend):
         _ = model_path
 
     def build_base_state(self, system_prompt: str) -> PromptState:
-        return PromptState(prompt=f"{system_prompt}\n\n")
+        return PromptState(base_prompt=f"{system_prompt}\n\n", prompt="")
 
     def clone_state(self, state: PromptState) -> PromptState:
-        return PromptState(prompt=state.prompt)
+        return PromptState(
+            base_prompt=state.base_prompt,
+            prompt=state.prompt,
+            prompt_cache=None,
+            rendered_suffix=state.rendered_suffix,
+        )
 
     def prefill(self, state: PromptState, tokens: str) -> None:
         state.prompt += tokens
 
     def generate_completion(self, state: PromptState, params: dict[str, Any]) -> str:
         _ = params
-        prompt = state.prompt
+        prompt = f"{state.base_prompt}{state.prompt}"
         query_match = re.search(
             r"User request:\n(.+?)\n\nAnswer:$", prompt, flags=re.DOTALL
         )
