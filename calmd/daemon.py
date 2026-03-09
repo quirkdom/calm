@@ -35,9 +35,13 @@ class CalmdServer:
         self.command_base_state = None
         self.analysis_base_state = None
         self._load_error: str | None = None
+        self._warmup_error: str | None = None
         self._ready = False
+        self._model_loaded = False
+        self._warmup_status = "pending"
         self._state_lock = threading.Lock()
         self._server_socket: socket.socket | None = None
+        self._skip_warmup = os.environ.get("CALMD_SKIP_WARMUP", "0") == "1"
 
     def _init_backend(self, model_path: str):
         self._log(f"loading model backend: {model_path}")
@@ -76,12 +80,73 @@ class CalmdServer:
                 self.backend = backend
                 self.command_base_state = command_base_state
                 self.analysis_base_state = analysis_base_state
-                self._ready = True
-            self._log("daemon ready")
+                self._model_loaded = True
+                self._warmup_status = "skipped" if self._skip_warmup else "in_progress"
+                self._ready = self._skip_warmup
+            self._log("model loaded")
+            if self._skip_warmup:
+                self._log("daemon ready (warmup skipped)")
+            else:
+                threading.Thread(target=self._warmup_backend, daemon=True).start()
         except Exception as exc:
             with self._state_lock:
                 self._load_error = str(exc)
             self._log(f"daemon failed to initialize: {exc}")
+
+    def _warmup_backend(self) -> None:
+        backend = self.backend
+        command_base_state = self.command_base_state
+        analysis_base_state = self.analysis_base_state
+        if backend is None or command_base_state is None or analysis_base_state is None:
+            return
+
+        try:
+            command_state = backend.clone_state(command_base_state)
+            backend.prefill(
+                command_state,
+                render_command_prompt(
+                    query="list files in current directory",
+                    history=None,
+                    shell="zsh",
+                    cwd=os.getcwd(),
+                    os_name=os.uname().sysname,
+                ),
+            )
+            backend.generate_completion(
+                command_state,
+                {
+                    "max_tokens": 1,
+                    "temperature": 0.0,
+                    "stop": ["\n\n", "<|endoftext|>", "<|im_start|>"],
+                    "verbose": False,
+                },
+            )
+
+            analysis_state = backend.clone_state(analysis_base_state)
+            backend.prefill(
+                analysis_state,
+                render_analysis_prompt("hello\nworld", "what does this contain?"),
+            )
+            backend.generate_completion(
+                analysis_state,
+                {
+                    "max_tokens": 1,
+                    "temperature": 0.0,
+                    "stop": ["\n\n", "<|endoftext|>", "<|im_start|>"],
+                    "verbose": False,
+                },
+            )
+            with self._state_lock:
+                self._warmup_status = "done"
+                self._ready = True
+            self._log("warmup complete; daemon ready")
+        except Exception as exc:
+            with self._state_lock:
+                self._warmup_status = "error"
+                self._warmup_error = str(exc)
+                # Warmup errors should not make daemon unusable.
+                self._ready = True
+            self._log(f"warmup skipped due to error: {exc}")
 
     def run(self) -> None:
         self.socket_path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,11 +209,7 @@ class CalmdServer:
 
         status = self._health_response()
         if status["status"] != "ready":
-            return {
-                "type": "status",
-                "status": status["status"],
-                "message": status["message"],
-            }
+            return status
 
         if mode == "analysis":
             return self._answer_analysis(req)
@@ -197,11 +258,17 @@ class CalmdServer:
         command = parsed.get("command")
         runnable = bool(parsed.get("runnable", False))
         if not command:
-            return {
+            response: dict[str, Any] = {
                 "type": "analysis",
                 "answer": parsed.get("analysis") or "No command found",
             }
-        return {"type": "command", "command": command.strip(), "runnable": runnable}
+            if req.get("include_metrics"):
+                response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
+            return response
+        response = {"type": "command", "command": command.strip(), "runnable": runnable}
+        if req.get("include_metrics"):
+            response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
+        return response
 
     def _answer_analysis(self, req: dict[str, Any]) -> dict[str, Any]:
         backend = self.backend
@@ -235,19 +302,49 @@ class CalmdServer:
         self._log(f"raw model output (analysis):\n{raw}")
         parsed = _parse_llm_json(raw)
         answer = parsed.get("analysis") or parsed.get("answer") or raw.strip()
-        return {"type": "analysis", "answer": answer}
+        response: dict[str, Any] = {"type": "analysis", "answer": answer}
+        if req.get("include_metrics"):
+            response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
+        return response
 
-    def _health_response(self) -> dict[str, str]:
+    def _health_response(self) -> dict[str, Any]:
         with self._state_lock:
-            if self._ready:
-                return {"type": "status", "status": "ready", "message": "ready"}
             if self._load_error:
                 return {
                     "type": "status",
                     "status": "error",
                     "message": self._load_error,
+                    "model_status": "error",
+                    "warmup_status": self._warmup_status,
+                    "accepting_requests": False,
                 }
-        return {"type": "status", "status": "initializing", "message": "model loading"}
+            if self._ready:
+                return {
+                    "type": "status",
+                    "status": "ready",
+                    "message": "ready",
+                    "model_status": "loaded",
+                    "warmup_status": self._warmup_status,
+                    "warmup_error": self._warmup_error,
+                    "accepting_requests": True,
+                }
+            if self._model_loaded:
+                return {
+                    "type": "status",
+                    "status": "warming_up",
+                    "message": "model loaded; warmup in progress",
+                    "model_status": "loaded",
+                    "warmup_status": self._warmup_status,
+                    "accepting_requests": False,
+                }
+        return {
+            "type": "status",
+            "status": "initializing",
+            "message": "model loading",
+            "model_status": "loading",
+            "warmup_status": self._warmup_status,
+            "accepting_requests": False,
+        }
 
     def _log(self, message: str) -> None:
         if not self.verbose:

@@ -190,9 +190,12 @@ def start_calmd() -> None:
     cmd = [sys.executable, "-m", "calmd"]
     if "CALMD_SOCKET" in os.environ:
         cmd.extend(["--socket", str(SOCKET_PATH)])
+    env = os.environ.copy()
+    env["CALMD_SKIP_WARMUP"] = "1"
 
     subprocess.Popen(
         cmd,
+        env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
