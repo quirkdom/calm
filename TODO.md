@@ -4,13 +4,13 @@
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
 
 ## `calmd` Daemon improvements
-- [ ] Implement custom KV caching for static system prompts.
-  - [ ] Check if we need to use `mlx_lm.generate_stream` to support this
-  - [ ] Ensure that the `clone cache state -> add user query part to prompt -> generate` flow works correctly.
+- [x] Implement custom KV caching for static system prompts.
+  - [x] Check if we need to use `mlx_lm.generate_stream` to support this
+  - [x] Ensure that the `clone cache state -> add user query part to prompt -> generate` flow works correctly.
 - [ ] Explore prompt prefilling benefits.
 - [ ] Speed up inference
   - [x] Disable thinking, especially in Qwen-3.5 models.
-  - [ ] KV caching for static system prompts.
+  - [x] KV caching for static system prompts.
   - [ ] Resuse prompt prefill across samples.
   - [ ] Truncate / cap stdin for analysis use-case. (Possibly provide a flag / ENV var to override that)
 - [ ] Implement our own version of `mlx_lm.generate` for use in [mlx_backend.py](calmd/backend/mlx_backend.py).
