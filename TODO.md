@@ -19,6 +19,7 @@
   - Should be able to intercept and early-exit when our custom stop tokens are encountered.
 - [ ] Auto-load and offload of models in `calmd` + auto-recover after crashes.
 - [ ] Make `calmd` auto-start on system boot + renice-able (give higher priority to CPU usage)
+- [ ] Support multiple concurrent generations in `calmd`.
 
 ## UX / DX improvements
 - [ ] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
