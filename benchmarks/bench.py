@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import socket
@@ -11,14 +12,17 @@ import time
 from pathlib import Path
 from typing import Any
 
+AVAILABLE_FEATURES = ("prefix-cache", "warmup")
+
 
 class RequestError(RuntimeError):
     pass
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Benchmark calmd prefix-cache impact")
+    parser = argparse.ArgumentParser(description="Benchmark calmd daemon performance")
     parser.add_argument(
+        "-x",
         "--rounds",
         type=int,
         default=10,
@@ -30,21 +34,51 @@ def parse_args() -> argparse.Namespace:
         help="unix socket path for benchmark daemon",
     )
     parser.add_argument(
+        "-m",
         "--model-path",
         default=None,
         help="optional model path to pass to calmd",
     )
     parser.add_argument(
-        "--skip-daemon-warmup",
-        action="store_true",
-        help="set CALMD_SKIP_WARMUP=1 for both cache-on and cache-off runs",
+        "--log-dir",
+        default="benchmarks/logs",
+        help="directory to write timestamped benchmark report logs",
     )
     parser.add_argument(
-        "--log-dir",
-        default="/tmp",
-        help="directory to write daemon benchmark logs",
+        "--enable-longtail",
+        action="store_true",
+        help="include longtail analysis samples using calmd/daemon.py code blob",
+    )
+    parser.add_argument(
+        "--control",
+        default=None,
+        help="comma-separated features for control run",
+    )
+    parser.add_argument(
+        "--experiment",
+        default=None,
+        help="comma-separated features for experiment run",
     )
     return parser.parse_args()
+
+
+def _parse_feature_set(raw: str | None, label: str) -> set[str]:
+    if raw is None:
+        return set()
+    out = {part.strip() for part in raw.split(",") if part.strip()}
+    unknown = sorted(out.difference(AVAILABLE_FEATURES))
+    if unknown:
+        raise ValueError(
+            f"{label} has unknown feature(s): {', '.join(unknown)}. "
+            f"Available: {', '.join(AVAILABLE_FEATURES)}"
+        )
+    return out
+
+
+def _feature_summary(features: set[str]) -> str:
+    if not features:
+        return "(none)"
+    return ",".join(sorted(features))
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -112,17 +146,13 @@ def _request_retry(
 
 def _wait_ready(
     socket_path: str,
-    proc: subprocess.Popen[str],
-    log_path: Path,
+    proc: subprocess.Popen[bytes],
     timeout_s: float = 600.0,
 ) -> None:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"calmd exited early with code {proc.returncode}. "
-                f"See log: {log_path}\n{_tail_file(log_path)}"
-            )
+            raise RuntimeError(f"calmd exited early with code {proc.returncode}")
         try:
             response = _request(socket_path, {"mode": "health"})
             if response.get("status") == "ready":
@@ -139,31 +169,19 @@ def _start_daemon(
     *,
     socket_path: str,
     model_path: str | None,
-    disable_prefix_cache: bool,
-    skip_warmup: bool,
-    log_path: Path,
-) -> subprocess.Popen[str]:
+    features: set[str],
+) -> subprocess.Popen[bytes]:
     env = os.environ.copy()
     env["CALMD_SOCKET"] = socket_path
-    env["CALMD_DISABLE_PREFIX_CACHE"] = "1" if disable_prefix_cache else "0"
-    env["CALMD_SKIP_WARMUP"] = "1" if skip_warmup else "0"
+    env["CALMD_DISABLE_PREFIX_CACHE"] = "0" if "prefix-cache" in features else "1"
+    env["CALMD_SKIP_WARMUP"] = "0" if "warmup" in features else "1"
     cmd = [sys.executable, "-m", "calmd", "--socket", socket_path]
     if model_path:
         cmd.extend(["--model-path", model_path])
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_file = log_path.open("w", encoding="utf-8")
-    proc = subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=log_file,
-        text=True,
-    )
-    log_file.close()
-    return proc
+    return subprocess.Popen(cmd, env=env)
 
 
-def _stop_daemon(proc: subprocess.Popen[str], socket_path: str) -> None:
+def _stop_daemon(proc: subprocess.Popen[bytes], socket_path: str) -> None:
     proc.terminate()
     try:
         proc.wait(timeout=10)
@@ -176,18 +194,9 @@ def _stop_daemon(proc: subprocess.Popen[str], socket_path: str) -> None:
         pass
 
 
-def _tail_file(path: Path, max_lines: int = 40) -> str:
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return "(unable to read daemon log)"
-    if not lines:
-        return "(daemon log is empty)"
-    tail = lines[-max_lines:]
-    return "\n".join(tail)
-
-
-def _run_benchmark(socket_path: str, rounds: int) -> dict[str, dict[str, list[float]]]:
+def _run_benchmark(
+    socket_path: str, rounds: int, enable_longtail: bool
+) -> dict[str, dict[str, list[float]]]:
     command_samples = [
         "show files bigger than 200MB in current directory",
         "find what is listening on port 5432",
@@ -200,6 +209,8 @@ def _run_benchmark(socket_path: str, rounds: int) -> dict[str, dict[str, list[fl
         ("PID CPU MEM\n1 10 20\n2 20 10", "which pid has highest cpu"),
         ("error: timeout\nok: done\nerror: disk", "how many errors"),
     ]
+    if enable_longtail:
+        analysis_samples.extend(_longtail_analysis_samples())
 
     result = {
         "command": {"e2e_ms": [], "inference_ms": []},
@@ -242,6 +253,30 @@ def _run_benchmark(socket_path: str, rounds: int) -> dict[str, dict[str, list[fl
     return result
 
 
+def _longtail_analysis_samples() -> list[tuple[str, str]]:
+    code_blob = _load_code_blob(min_lines=200, max_lines=260)
+    return [
+        (
+            code_blob,
+            "Summarize the daemon lifecycle stages and when requests are accepted.",
+        ),
+        (
+            code_blob,
+            "List two potential failure paths and how the daemon reports them.",
+        ),
+    ]
+
+
+def _load_code_blob(min_lines: int, max_lines: int) -> str:
+    path = Path("calmd/daemon.py")
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if len(lines) < min_lines:
+        raise RuntimeError(
+            f"{path} has only {len(lines)} lines; expected at least {min_lines}"
+        )
+    return "\n".join(lines[:max_lines])
+
+
 def _fmt_delta(old: float, new: float) -> str:
     if old <= 0:
         return "n/a"
@@ -250,59 +285,114 @@ def _fmt_delta(old: float, new: float) -> str:
     return f"{delta:.2f} ms ({pct:.1f}%)"
 
 
-def _print_summary(cache_off: dict[str, dict[str, list[float]]], cache_on: dict[str, dict[str, list[float]]]) -> None:
-    print("\n== Summary (cache-off baseline -> cache-on) ==")
+def _build_summary_lines(
+    control: dict[str, dict[str, list[float]]],
+    experiment: dict[str, dict[str, list[float]]],
+    control_features: set[str],
+    experiment_features: set[str],
+) -> list[str]:
+    lines: list[str] = []
+    lines.append("== Summary (control baseline -> experiment) ==")
+    lines.append(f"control.features: {_feature_summary(control_features)}")
+    lines.append(f"experiment.features: {_feature_summary(experiment_features)}")
     for mode in ("command", "analysis"):
-        print(f"\n[{mode}]")
+        lines.append("")
+        lines.append(f"[{mode}]")
         for metric in ("e2e_ms", "inference_ms"):
-            off = _summarize(cache_off[mode][metric])
-            on = _summarize(cache_on[mode][metric])
-            print(f"{metric}:")
-            print(f"  off mean/p50/p95: {off['mean']:.2f} / {off['p50']:.2f} / {off['p95']:.2f}")
-            print(f"   on mean/p50/p95: {on['mean']:.2f} / {on['p50']:.2f} / {on['p95']:.2f}")
-            print(f"  improvement mean: {_fmt_delta(off['mean'], on['mean'])}")
-            print(f"  improvement  p50: {_fmt_delta(off['p50'], on['p50'])}")
-            print(f"  improvement  p95: {_fmt_delta(off['p95'], on['p95'])}")
+            off = _summarize(control[mode][metric])
+            on = _summarize(experiment[mode][metric])
+            lines.append(f"{metric}:")
+            lines.append(
+                f"  control mean/p50/p95: {off['mean']:.2f} / {off['p50']:.2f} / {off['p95']:.2f}"
+            )
+            lines.append(
+                f"  experiment mean/p50/p95: {on['mean']:.2f} / {on['p50']:.2f} / {on['p95']:.2f}"
+            )
+            lines.append(f"  improvement mean: {_fmt_delta(off['mean'], on['mean'])}")
+            lines.append(f"  improvement  p50: {_fmt_delta(off['p50'], on['p50'])}")
+            lines.append(f"  improvement  p95: {_fmt_delta(off['p95'], on['p95'])}")
+    return lines
+
+
+def _write_report(path: Path, lines: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _print_no_feature_warning() -> None:
+    print("No feature sets provided; benchmark did not run.")
+    print(f"Available features: {', '.join(AVAILABLE_FEATURES)}")
+    print("Use:")
+    print("  --control=prefix-cache --experiment=prefix-cache,warmup")
+    print("Any side omitted means empty feature set for that side.")
 
 
 def main() -> int:
     args = parse_args()
+    if args.control is None and args.experiment is None:
+        _print_no_feature_warning()
+        return 0
+
+    control_features = _parse_feature_set(args.control, "control")
+    experiment_features = _parse_feature_set(args.experiment, "experiment")
+
     socket_path = str(Path(args.socket).expanduser())
     Path(socket_path).unlink(missing_ok=True)
 
+    run_ts = dt.datetime.now().astimezone()
+    run_id = run_ts.strftime("%Y%m%d-%H%M%S")
     log_dir = Path(args.log_dir).expanduser()
-    off_log = log_dir / "calmd-bench-cache-off.log"
-    on_log = log_dir / "calmd-bench-cache-on.log"
+    report_log = log_dir / f"{run_id}.report.log"
 
-    print("Running cache-off benchmark...")
-    off_proc = _start_daemon(
+    print(f"Running control benchmark (features={_feature_summary(control_features)})...")
+    control_proc = _start_daemon(
         socket_path=socket_path,
         model_path=args.model_path,
-        disable_prefix_cache=True,
-        skip_warmup=args.skip_daemon_warmup,
-        log_path=off_log,
+        features=control_features,
     )
     try:
-        _wait_ready(socket_path, off_proc, off_log)
-        cache_off = _run_benchmark(socket_path, args.rounds)
+        _wait_ready(socket_path, control_proc)
+        control_result = _run_benchmark(
+            socket_path, rounds=args.rounds, enable_longtail=args.enable_longtail
+        )
     finally:
-        _stop_daemon(off_proc, socket_path)
+        _stop_daemon(control_proc, socket_path)
 
-    print("Running cache-on benchmark...")
-    on_proc = _start_daemon(
+    print(
+        f"Running experiment benchmark (features={_feature_summary(experiment_features)})..."
+    )
+    experiment_proc = _start_daemon(
         socket_path=socket_path,
         model_path=args.model_path,
-        disable_prefix_cache=False,
-        skip_warmup=args.skip_daemon_warmup,
-        log_path=on_log,
+        features=experiment_features,
     )
     try:
-        _wait_ready(socket_path, on_proc, on_log)
-        cache_on = _run_benchmark(socket_path, args.rounds)
+        _wait_ready(socket_path, experiment_proc)
+        experiment_result = _run_benchmark(
+            socket_path, rounds=args.rounds, enable_longtail=args.enable_longtail
+        )
     finally:
-        _stop_daemon(on_proc, socket_path)
+        _stop_daemon(experiment_proc, socket_path)
 
-    _print_summary(cache_off, cache_on)
+    lines = [
+        f"timestamp: {run_ts.isoformat()}",
+        f"rounds: {args.rounds}",
+        f"model_path: {args.model_path or '(default)'}",
+        f"enable_longtail: {args.enable_longtail}",
+        f"control.features: {_feature_summary(control_features)}",
+        f"experiment.features: {_feature_summary(experiment_features)}",
+        "",
+    ]
+    summary_lines = _build_summary_lines(
+        control_result,
+        experiment_result,
+        control_features=control_features,
+        experiment_features=experiment_features,
+    )
+    lines.extend(summary_lines)
+    print("\n" + "\n".join(summary_lines))
+    _write_report(report_log, lines)
+    print(f"\nWrote benchmark report: {report_log}")
     return 0
 
 
