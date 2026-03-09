@@ -5,8 +5,9 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 import mlx.core as mx
 from mlx.nn import Module
@@ -121,7 +122,11 @@ class MLXBackend(InferenceBackend):
             if self._disable_prefix_cache
             else _common_prefix_len(system_tokens, full_tokens)
         )
-        if not self._disable_prefix_cache and prompt_cache is not None and prefix_len > 0:
+        if (
+            not self._disable_prefix_cache
+            and prompt_cache is not None
+            and prefix_len > 0
+        ):
             cache_for_request = prompt_cache
             if prefix_len < len(system_tokens):
                 cache_for_request = self._trimmed_cache_copy(
@@ -203,13 +208,13 @@ class MLXBackend(InferenceBackend):
     def _trimmed_cache_copy(
         self, prompt_cache: Any, cached_tokens: list[int], target_prefix_len: int
     ) -> Any:
-        from mlx_lm.models.cache import can_trim_prompt_cache, trim_prompt_cache  # type: ignore
+        from mlx_lm.models.cache import (  # type: ignore
+            can_trim_prompt_cache,
+            trim_prompt_cache,
+        )
 
         cache_copy = copy.deepcopy(prompt_cache)
-        if (
-            target_prefix_len < len(cached_tokens)
-            and can_trim_prompt_cache(cache_copy)
-        ):
+        if target_prefix_len < len(cached_tokens) and can_trim_prompt_cache(cache_copy):
             trim_prompt_cache(cache_copy, len(cached_tokens) - target_prefix_len)
         return cache_copy
 

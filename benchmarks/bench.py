@@ -158,7 +158,9 @@ def _wait_ready(
             if response.get("status") == "ready":
                 return
             if response.get("status") == "error":
-                raise RuntimeError(response.get("message", "daemon initialization failed"))
+                raise RuntimeError(
+                    response.get("message", "daemon initialization failed")
+                )
         except (OSError, RequestError):
             pass
         time.sleep(0.1)
@@ -344,7 +346,9 @@ def main() -> int:
     log_dir = Path(args.log_dir).expanduser()
     report_log = log_dir / f"{run_id}.report.log"
 
-    print(f"Running control benchmark (features={_feature_summary(control_features)})...")
+    print(
+        f"Running control benchmark (features={_feature_summary(control_features)})..."
+    )
     control_proc = _start_daemon(
         socket_path=socket_path,
         model_path=args.model_path,

@@ -56,7 +56,11 @@ def read_last_history_command() -> str | None:
         for candidate in (home / ".zsh_history", home / ".bash_history"):
             if candidate.exists():
                 path = candidate
-                parser = _parse_zsh_history if candidate.name == ".zsh_history" else _parse_plain_history
+                parser = (
+                    _parse_zsh_history
+                    if candidate.name == ".zsh_history"
+                    else _parse_plain_history
+                )
                 break
         else:
             return None
@@ -123,7 +127,10 @@ def is_dangerous(command: str) -> bool:
     token_set = set(tokens)
     if token_set.intersection(DANGEROUS_TOKENS):
         return True
-    if any(token.startswith("/") and token in {"/", "/etc", "/usr", "/bin", "/sbin"} for token in tokens):
+    if any(
+        token.startswith("/") and token in {"/", "/etc", "/usr", "/bin", "/sbin"}
+        for token in tokens
+    ):
         return True
     return False
 
@@ -231,7 +238,10 @@ def main() -> int:
         return 0
 
     if response.get("type") == "status":
-        print(f"error: calmd status={response.get('status')}: {response.get('message', '')}", file=sys.stderr)
+        print(
+            f"error: calmd status={response.get('status')}: {response.get('message', '')}",
+            file=sys.stderr,
+        )
         return 1
 
     if response.get("type") != "command":

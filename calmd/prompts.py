@@ -45,7 +45,9 @@ Return a short answer.
 Do not output chain-of-thought, reasoning tags, or <think> blocks."""
 
 
-def render_command_prompt(query: str, history: str | None, shell: str, cwd: str, os_name: str) -> str:
+def render_command_prompt(
+    query: str, history: str | None, shell: str, cwd: str, os_name: str
+) -> str:
     history_block = history.strip() if history else ""
     recent = f"Recent command:\n{history_block}\n\n" if history_block else ""
     return (
@@ -61,10 +63,4 @@ def render_command_prompt(query: str, history: str | None, shell: str, cwd: str,
 
 
 def render_analysis_prompt(stdin_text: str, query: str) -> str:
-    return (
-        "Input:\n"
-        f"{stdin_text}\n\n"
-        "Question:\n"
-        f"{query}\n\n"
-        "Answer:"
-    )
+    return f"Input:\n{stdin_text}\n\nQuestion:\n{query}\n\nAnswer:"

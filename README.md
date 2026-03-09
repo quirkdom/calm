@@ -54,3 +54,14 @@ Optional: set `CALMD_WAIT_TIMEOUT` (seconds) to change CLI wait time for daemon 
 ```bash
 uv run python -m compileall calm calmd main.py
 ```
+
+### Formatting, Linting and Type Checking
+
+```bash
+uv run ruff format                      # format
+uv run ruff check                       # lint
+uv run ruff check --fix                 # auto-fix lint issues
+
+uv run basedpyright                     # type check
+uv run basedpyright --level error       # only errors
+```
