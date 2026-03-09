@@ -28,9 +28,18 @@ DANGEROUS_TOKENS = {
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="calm", description="CLI answers via local calmd")
-    parser.add_argument("-y", "--yolo", action="store_true", help="run command automatically")
-    parser.add_argument("-f", "--force", action="store_true", help="allow dangerous commands")
+    parser = argparse.ArgumentParser(
+        prog="calm",
+        description="[C]alm [A]nswers via (local) [L]anguage [M]odels. \
+        calm is a CLI tool that answers simple questions using a local language model. \
+        calm runs and communicates with the calmd LM server daemon.",
+    )
+    parser.add_argument(
+        "-y", "--yolo", action="store_true", help="run command automatically"
+    )
+    parser.add_argument(
+        "-f", "--force", action="store_true", help="allow dangerous commands"
+    )
     parser.add_argument("query", help="question or task")
     return parser.parse_args()
 
