@@ -36,6 +36,7 @@ class MLXBackend(InferenceBackend):
         self._disable_prefix_cache = (
             os.environ.get("CALMD_DISABLE_PREFIX_CACHE", "0") == "1"
         )
+        self._max_kv_size = int(os.environ.get("CALMD_MAX_KV_SIZE", "4096"))
 
     def load_model(self, model_path: str) -> None:
         from mlx_lm import generate, load  # type: ignore
@@ -195,7 +196,9 @@ class MLXBackend(InferenceBackend):
         if not prompt_tokens:
             return None
 
-        prompt_cache = self._make_prompt_cache_fn(self.model)
+        prompt_cache = self._make_prompt_cache_fn(
+            self.model, max_kv_size=self._max_kv_size
+        )
         for _ in self._generate_step_fn(
             mx.array(prompt_tokens),
             self.model,
