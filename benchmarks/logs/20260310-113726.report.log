@@ -1,0 +1,38 @@
+timestamp: 2026-03-10T11:37:26.647466+05:30
+rounds: 10
+model_path: mlx-community/Qwen3.5-9B-OptiQ-4bit
+enable_longtail: False
+control.features: (none) - 4k cache limit
+experiment.features: prefix-cache,warmup - 4k cache limit
+
+== Summary (control baseline -> experiment) ==
+control.features: (none)
+experiment.features: prefix-cache,warmup
+
+[command]
+e2e_ms:
+  control mean/p50/p95: 1226.22 / 1100.81 / 1691.64
+  experiment mean/p50/p95: 637.30 / 532.33 / 1054.20
+  improvement mean: 588.92 ms (48.0%)
+  improvement  p50: 568.48 ms (51.6%)
+  improvement  p95: 637.44 ms (37.7%)
+inference_ms:
+  control mean/p50/p95: 1225.02 / 1100.07 / 1690.57
+  experiment mean/p50/p95: 636.33 / 531.37 / 1053.16
+  improvement mean: 588.69 ms (48.1%)
+  improvement  p50: 568.70 ms (51.7%)
+  improvement  p95: 637.41 ms (37.7%)
+
+[analysis]
+e2e_ms:
+  control mean/p50/p95: 437.97 / 402.58 / 512.90
+  experiment mean/p50/p95: 325.59 / 277.36 / 461.15
+  improvement mean: 112.38 ms (25.7%)
+  improvement  p50: 125.22 ms (31.1%)
+  improvement  p95: 51.75 ms (10.1%)
+inference_ms:
+  control mean/p50/p95: 437.50 / 402.12 / 512.46
+  experiment mean/p50/p95: 324.97 / 276.72 / 460.55
+  improvement mean: 112.53 ms (25.7%)
+  improvement  p50: 125.40 ms (31.2%)
+  improvement  p95: 51.91 ms (10.1%)
