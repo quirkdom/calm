@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import copy
-import json
+import gc
 import os
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -51,6 +50,20 @@ class MLXBackend(InferenceBackend):
         self._generate_step_fn = generate_step
         self._make_prompt_cache_fn = make_prompt_cache
         self._is_qwen35_model = _is_qwen35_model(model_path)
+
+    def unload_model(self) -> None:
+        self.model = None
+        self.tokenizer = None
+        self._generate_fn = None
+        self._generate_step_fn = None
+        self._make_prompt_cache_fn = None
+        self.last_metrics = {}
+        self._is_qwen35_model = False
+        gc.collect()
+        metal = getattr(mx, "metal", None)
+        clear_cache = getattr(metal, "clear_cache", None) if metal is not None else None
+        if callable(clear_cache):
+            clear_cache()
 
     def build_base_state(self, system_prompt: str) -> PromptState:
         if self._disable_prefix_cache:
@@ -259,58 +272,6 @@ def _make_sampler_from_params(params: dict[str, Any]) -> Any:
 def _is_qwen35_model(model_path: str) -> bool:
     normalized = model_path.lower().replace("-", "").replace("_", "")
     return "qwen3.5" in model_path.lower() or "qwen35" in normalized
-
-
-class RuleBasedFallbackBackend(InferenceBackend):
-    """Used only when mlx_lm is unavailable in the runtime environment."""
-
-    def load_model(self, model_path: str) -> None:
-        _ = model_path
-
-    def build_base_state(self, system_prompt: str) -> PromptState:
-        return PromptState(system_prompt=system_prompt)
-
-    def clone_state(self, state: PromptState) -> PromptState:
-        return PromptState(
-            system_prompt=state.system_prompt,
-            user_prompt=state.user_prompt,
-        )
-
-    def prefill(self, state: PromptState, tokens: str) -> None:
-        state.user_prompt += tokens
-
-    def generate_completion(self, state: PromptState, params: dict[str, Any]) -> str:
-        _ = params
-        prompt = f"{state.system_prompt}\n\n{state.user_prompt}"
-        query_match = re.search(
-            r"User request:\n(.+?)\n\nAnswer:$", prompt, flags=re.DOTALL
-        )
-        if query_match:
-            query = query_match.group(1).strip().lower()
-            cmd = self._guess_command(query)
-            return json.dumps({"command": cmd, "analysis": None, "runnable": bool(cmd)})
-
-        analysis_q = re.search(r"Question:\n(.+?)\n\nAnswer:$", prompt, flags=re.DOTALL)
-        if analysis_q:
-            q = analysis_q.group(1).strip()
-            return json.dumps(
-                {"command": None, "analysis": f"Based on input: {q}", "runnable": False}
-            )
-
-        return json.dumps({"command": None, "analysis": "No result", "runnable": False})
-
-    def _guess_command(self, query: str) -> str | None:
-        if "port" in query:
-            port = re.search(r"(\d{2,5})", query)
-            if port:
-                return f"lsof -i :{port.group(1)}"
-        if "larger" in query or "large file" in query:
-            return "find . -type f -size +1G"
-        if "tar.gz" in query or "extract" in query:
-            return "tar -xzf archive.tar.gz"
-        if "memory" in query:
-            return "ps aux | sort -nrk 4 | head -n 5"
-        return None
 
 
 def _common_prefix_len(a: list[int], b: list[int]) -> int:

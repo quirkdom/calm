@@ -12,6 +12,7 @@ from pathlib import Path
 
 SOCKET_PATH = Path(os.environ.get("CALMD_SOCKET", "~/.cache/calmd/socket")).expanduser()
 DAEMON_WAIT_TIMEOUT_SECS = float(os.environ.get("CALMD_WAIT_TIMEOUT", "300"))
+DAEMON_SHUTDOWN_TIMEOUT_SECS = float(os.environ.get("CALMD_SHUTDOWN_TIMEOUT", "2"))
 DANGEROUS_TOKENS = {
     "rm",
     "mkfs",
@@ -38,9 +39,18 @@ def parse_args() -> argparse.Namespace:
         "-y", "--yolo", action="store_true", help="run command automatically"
     )
     parser.add_argument(
-        "-f", "--force", action="store_true", help="allow dangerous commands"
+        "-f",
+        "--force",
+        action="store_true",
+        help="allow dangerous commands; with -k, kill calmd immediately",
     )
-    parser.add_argument("query", help="question or task")
+    parser.add_argument(
+        "-x", "--offload", action="store_true", help="offload model from calmd"
+    )
+    parser.add_argument(
+        "-k", "--kill", action="store_true", help="terminate the calmd daemon"
+    )
+    parser.add_argument("query", nargs="?", help="question or task")
     return parser.parse_args()
 
 
@@ -103,8 +113,9 @@ def _parse_zsh_history(line: str) -> str | None:
     return line
 
 
-def make_request(payload: dict) -> dict:
-    ensure_daemon_running()
+def make_request(payload: dict, ensure_running: bool = True) -> dict:
+    if ensure_running:
+        ensure_daemon_running()
 
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.connect(str(SOCKET_PATH))
@@ -181,6 +192,17 @@ def ensure_daemon_running() -> None:
     )
 
 
+def notify_if_daemon_offloaded() -> None:
+    health = _check_daemon_health()
+    if not health:
+        return
+    if health.get("status") != "ready":
+        return
+    if health.get("model_status") != "offloaded":
+        return
+    print("waking calmd (model was offloaded)...", file=sys.stderr)
+
+
 def _check_daemon_health() -> dict | None:
     if not SOCKET_PATH.exists():
         return None
@@ -220,11 +242,111 @@ def start_calmd() -> None:
     )
 
 
+def daemon_is_running() -> bool:
+    health = _check_daemon_health()
+    return health is not None
+
+
+def offload_daemon() -> int:
+    if not daemon_is_running():
+        print("calmd is not running", file=sys.stderr)
+        return 0
+
+    try:
+        response = make_request(
+            {"mode": "control", "action": "offload"}, ensure_running=False
+        )
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    message = response.get("message", "calmd offloaded")
+    if response.get("status") == "error":
+        print(f"error: {message}", file=sys.stderr)
+        return 1
+    print(message)
+    return 0
+
+
+def terminate_daemon(force: bool) -> int:
+    if not daemon_is_running():
+        print("calmd is not running", file=sys.stderr)
+        return 0
+
+    if force:
+        return _send_shutdown_request(force=True)
+
+    status = _send_shutdown_request(force=False)
+    if status != 0:
+        return status
+
+    deadline = time.time() + DAEMON_SHUTDOWN_TIMEOUT_SECS
+    while time.time() < deadline:
+        if not daemon_is_running():
+            print("calmd stopped")
+            return 0
+        time.sleep(0.05)
+
+    print("calmd did not stop gracefully; forcing shutdown", file=sys.stderr)
+    status = _send_shutdown_request(force=True)
+    if status != 0:
+        return status
+
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        if not daemon_is_running():
+            print("calmd stopped")
+            return 0
+        time.sleep(0.05)
+
+    print("error: calmd is still running after forced shutdown", file=sys.stderr)
+    return 1
+
+
+def _send_shutdown_request(force: bool) -> int:
+    try:
+        response = make_request(
+            {"mode": "control", "action": "shutdown", "force": force},
+            ensure_running=False,
+        )
+    except Exception as exc:
+        if force and not daemon_is_running():
+            print("calmd stopped")
+            return 0
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    message = response.get("message", "calmd stopping")
+    if response.get("status") == "error":
+        print(f"error: {message}", file=sys.stderr)
+        return 1
+    print(message)
+    return 0
+
+
 def main() -> int:
     args = parse_args()
+    if args.offload and args.kill:
+        print("error: choose either -x/--offload or -k/--kill", file=sys.stderr)
+        return 1
+    if (args.offload or args.kill) and args.query:
+        print(
+            "error: cannot combine query with -x/--offload nor -k/--kill",
+            file=sys.stderr,
+        )
+        return 1
+    if not (args.offload or args.kill) and not args.query:
+        print("error: query is required", file=sys.stderr)
+        return 1
+
+    if args.offload:
+        return offload_daemon()
+    if args.kill:
+        return terminate_daemon(force=args.force)
 
     stdin_text = detect_stdin()
     mode = "analysis" if stdin_text is not None else "command"
+    notify_if_daemon_offloaded()
 
     payload = {
         "query": args.query,

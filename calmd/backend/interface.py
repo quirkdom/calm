@@ -10,6 +10,10 @@ class InferenceBackend(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def unload_model(self) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
     def build_base_state(self, system_prompt: str) -> Any:
         raise NotImplementedError
 

@@ -8,10 +8,12 @@ import signal
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
-from calmd.backend.mlx_backend import MLXBackend, RuleBasedFallbackBackend
+from calmd.backend.interface import InferenceBackend
+from calmd.backend.mlx_backend import MLXBackend
 from calmd.prompts import (
     ANALYSIS_MODE_SYSTEM_PROMPT,
     COMMAND_MODE_SYSTEM_PROMPT,
@@ -22,6 +24,10 @@ from calmd.prompts import (
 SOCKET_PATH = Path(os.environ.get("CALMD_SOCKET", "~/.cache/calmd/socket")).expanduser()
 DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
 FAST_MODEL = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
+DEFAULT_IDLE_OFFLOAD_SECS = 15 * 60
+MAX_AUTO_RECOVERIES = 3
+FATAL_EXIT_GRACE_SECS = 0.5
+CONTROL_EXIT_DELAY_SECS = 0.05
 
 
 class CalmdServer:
@@ -31,19 +37,31 @@ class CalmdServer:
         self.model_path = model_path
         self.socket_path = socket_path
         self.verbose = verbose
-        self.backend = None
-        self.command_base_state = None
-        self.analysis_base_state = None
+        self.backend: InferenceBackend | None = None
+        self.command_base_state: Any | None = None
+        self.analysis_base_state: Any | None = None
         self._load_error: str | None = None
         self._warmup_error: str | None = None
         self._ready = False
         self._model_loaded = False
+        self._loading = False
+        self._offloaded = False
         self._warmup_status = "pending"
         self._state_lock = threading.Lock()
+        self._state_cv = threading.Condition(self._state_lock)
         self._server_socket: socket.socket | None = None
         self._skip_warmup = os.environ.get("CALMD_SKIP_WARMUP", "0") == "1"
+        self._load_skip_warmup = self._skip_warmup
+        self._idle_offload_secs = int(
+            os.environ.get("CALMD_IDLE_OFFLOAD_SECS", str(DEFAULT_IDLE_OFFLOAD_SECS))
+        )
+        self._last_activity_at = time.monotonic()
+        self._active_requests = 0
+        self._recovery_attempts = 0
+        self._fatal_error: str | None = None
+        self._shutting_down = False
 
-    def _init_backend(self, model_path: str):
+    def _init_backend(self, model_path: str) -> InferenceBackend:
         self._log(f"loading model backend: {model_path}")
         try:
             backend = MLXBackend()
@@ -62,41 +80,107 @@ class CalmdServer:
                 self.model_path = FAST_MODEL
                 self._log("mlx_lm fast backend loaded")
                 return backend
-            print(
-                f"warning: mlx_lm backend unavailable ({exc}); using fallback backend",
-                file=sys.stderr,
-            )
-            backend = RuleBasedFallbackBackend()
-            backend.load_model(model_path)
-            self._log("fallback backend loaded")
-            return backend
+            raise RuntimeError(
+                f"failed to load backend for {model_path}: {exc}"
+            ) from exc
+
+    def _start_background_load(self, on_demand: bool = False) -> None:
+        with self._state_cv:
+            if self._loading or self._model_loaded or self._fatal_error:
+                return
+            self._load_skip_warmup = on_demand or self._skip_warmup
+            self._mark_loading_locked()
+            self._spawn_load_thread_locked()
+
+    def _mark_loading_locked(self) -> None:
+        self._loading = True
+        self._ready = False
+        self._offloaded = False
+        self._load_error = None
+        self._warmup_error = None
+        self._warmup_status = "pending"
+
+    def _mark_loaded_locked(
+        self, backend: InferenceBackend, command_base_state: Any, analysis_base_state: Any
+    ) -> None:
+        self.backend = backend
+        self.command_base_state = command_base_state
+        self.analysis_base_state = analysis_base_state
+        self._model_loaded = True
+        self._loading = False
+        self._offloaded = False
+        self._warmup_status = "skipped" if self._load_skip_warmup else "in_progress"
+        self._ready = self._load_skip_warmup
+        self._load_error = None
+        self._warmup_error = None
+        self._last_activity_at = time.monotonic()
+
+    def _mark_load_failed_locked(self, message: str, fatal: bool) -> None:
+        self.backend = None
+        self.command_base_state = None
+        self.analysis_base_state = None
+        self._model_loaded = False
+        self._loading = False
+        self._ready = False
+        self._offloaded = False
+        self._load_error = message
+        if fatal:
+            self._fatal_error = message
+
+    def _mark_warmup_complete_locked(self) -> None:
+        self._warmup_status = "done"
+        self._ready = True
+
+    def _mark_warmup_failed_locked(self, message: str) -> None:
+        # Warmup errors should not make daemon unusable.
+        self._warmup_status = "error"
+        self._warmup_error = message
+        self._ready = True
+
+    def _mark_offloaded_locked(self) -> None:
+        self.backend = None
+        self.command_base_state = None
+        self.analysis_base_state = None
+        self._model_loaded = False
+        self._ready = False
+        self._offloaded = True
+        self._warmup_status = "pending"
+        self._warmup_error = None
+
+    def _mark_fatal_locked(self, message: str) -> None:
+        self._fatal_error = message
+        self._load_error = message
+
+    def _spawn_load_thread_locked(self) -> None:
+        threading.Thread(target=self._load_backend, daemon=True).start()
 
     def _load_backend(self) -> None:
         try:
             backend = self._init_backend(self.model_path)
             command_base_state = backend.build_base_state(COMMAND_MODE_SYSTEM_PROMPT)
             analysis_base_state = backend.build_base_state(ANALYSIS_MODE_SYSTEM_PROMPT)
-            with self._state_lock:
-                self.backend = backend
-                self.command_base_state = command_base_state
-                self.analysis_base_state = analysis_base_state
-                self._model_loaded = True
-                self._warmup_status = "skipped" if self._skip_warmup else "in_progress"
-                self._ready = self._skip_warmup
+            with self._state_cv:
+                self._mark_loaded_locked(
+                    backend, command_base_state, analysis_base_state
+                )
+                self._state_cv.notify_all()
             self._log("model loaded")
-            if self._skip_warmup:
+            if self._load_skip_warmup:
                 self._log("daemon ready (warmup skipped)")
             else:
                 threading.Thread(target=self._warmup_backend, daemon=True).start()
         except Exception as exc:
-            with self._state_lock:
-                self._load_error = str(exc)
+            with self._state_cv:
+                self._mark_load_failed_locked(str(exc), fatal=True)
+                self._state_cv.notify_all()
             self._log(f"daemon failed to initialize: {exc}")
+            self._schedule_fatal_shutdown()
 
     def _warmup_backend(self) -> None:
-        backend = self.backend
-        command_base_state = self.command_base_state
-        analysis_base_state = self.analysis_base_state
+        with self._state_lock:
+            backend = self.backend
+            command_base_state = self.command_base_state
+            analysis_base_state = self.analysis_base_state
         if backend is None or command_base_state is None or analysis_base_state is None:
             return
 
@@ -136,16 +220,14 @@ class CalmdServer:
                     "verbose": False,
                 },
             )
-            with self._state_lock:
-                self._warmup_status = "done"
-                self._ready = True
+            with self._state_cv:
+                self._mark_warmup_complete_locked()
+                self._state_cv.notify_all()
             self._log("warmup complete; daemon ready")
         except Exception as exc:
-            with self._state_lock:
-                self._warmup_status = "error"
-                self._warmup_error = str(exc)
-                # Warmup errors should not make daemon unusable.
-                self._ready = True
+            with self._state_cv:
+                self._mark_warmup_failed_locked(str(exc))
+                self._state_cv.notify_all()
             self._log(f"warmup skipped due to error: {exc}")
 
     def run(self) -> None:
@@ -157,7 +239,8 @@ class CalmdServer:
         server.bind(str(self.socket_path))
         server.listen(64)
         self._server_socket = server
-        threading.Thread(target=self._load_backend, daemon=True).start()
+        self._start_background_load()
+        threading.Thread(target=self._idle_offload_loop, daemon=True).start()
 
         def _shutdown(signum: int, frame: Any) -> None:
             _ = signum, frame
@@ -168,18 +251,156 @@ class CalmdServer:
         signal.signal(signal.SIGTERM, _shutdown)
 
         while True:
-            conn, _ = server.accept()
+            try:
+                conn, _ = server.accept()
+            except OSError:
+                if self._shutting_down:
+                    break
+                raise
             with conn:
                 data = self._recv_line(conn)
                 response = self._handle_request(data)
-                conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                try:
+                    conn.sendall((json.dumps(response) + "\n").encode("utf-8"))
+                except OSError:
+                    self._log("client disconnected before response was sent")
 
     def close(self) -> None:
+        self._shutting_down = True
         if self._server_socket is not None:
             self._server_socket.close()
             self._server_socket = None
         if self.socket_path.exists():
             self.socket_path.unlink()
+
+    def _idle_offload_loop(self) -> None:
+        while not self._shutting_down:
+            time.sleep(1.0)
+            if self._idle_offload_secs < 0:
+                continue
+            with self._state_lock:
+                idle_for = time.monotonic() - self._last_activity_at
+                should_offload = (
+                    self._model_loaded
+                    and self._ready
+                    and not self._loading
+                    and self._active_requests == 0
+                    and idle_for >= self._idle_offload_secs
+                )
+            if should_offload:
+                self._offload_backend("idle timeout")
+
+    def _offload_backend(self, reason: str, force: bool = False) -> None:
+        with self._state_cv:
+            if self._loading or not self._model_loaded:
+                return
+            if not force and self._active_requests > 0:
+                return
+            backend = self.backend
+            self._mark_offloaded_locked()
+            self._state_cv.notify_all()
+        if backend is not None:
+            try:
+                backend.unload_model()
+            except Exception as exc:
+                self._log(f"failed to unload backend cleanly: {exc}")
+        self._log(f"model offloaded ({reason})")
+
+    def _wait_until_ready_for_request(self) -> dict[str, Any] | None:
+        with self._state_cv:
+            while True:
+                if self._fatal_error:
+                    return self._fatal_status_response()
+                if self._offloaded and not self._loading:
+                    self._load_skip_warmup = True
+                    self._mark_loading_locked()
+                    self._spawn_load_thread_locked()
+                if self._load_error:
+                    return {
+                        "type": "status",
+                        "status": "error",
+                        "message": self._load_error,
+                        "model_status": "error",
+                        "warmup_status": self._warmup_status,
+                        "accepting_requests": False,
+                    }
+                if self._ready and self.backend is not None:
+                    return None
+                if not self._model_loaded and not self._loading and not self._offloaded:
+                    self._load_skip_warmup = True
+                    self._mark_loading_locked()
+                    self._spawn_load_thread_locked()
+                self._state_cv.wait(timeout=0.1)
+
+    def _begin_request(self) -> dict[str, Any] | None:
+        with self._state_cv:
+            self._active_requests += 1
+        status = self._wait_until_ready_for_request()
+        if status is not None:
+            with self._state_cv:
+                self._active_requests = max(0, self._active_requests - 1)
+                self._state_cv.notify_all()
+            return status
+        return None
+
+    def _finish_request(self) -> None:
+        with self._state_cv:
+            self._active_requests = max(0, self._active_requests - 1)
+            self._last_activity_at = time.monotonic()
+            self._state_cv.notify_all()
+
+    def _recover_from_backend_crash(self, exc: Exception) -> dict[str, Any] | None:
+        attempt = self._recovery_attempts + 1
+        self._log(
+            f"backend crash detected (attempt {attempt}/{MAX_AUTO_RECOVERIES}): {exc}"
+        )
+
+        if attempt > MAX_AUTO_RECOVERIES:
+            with self._state_cv:
+                self._mark_fatal_locked(
+                    f"backend crashed more than {MAX_AUTO_RECOVERIES} times; exiting"
+                )
+                self._state_cv.notify_all()
+            self._schedule_fatal_shutdown()
+            return self._fatal_status_response()
+
+        self._recovery_attempts = attempt
+        if _is_oom_error(exc) and self.model_path != FAST_MODEL:
+            print(
+                f"warning: backend crash looks like OOM; retrying with fast model {FAST_MODEL}",
+                file=sys.stderr,
+            )
+            self.model_path = FAST_MODEL
+
+        self._offload_backend("backend crash", force=True)
+        self._start_background_load(on_demand=True)
+        status = self._wait_until_ready_for_request()
+        return status
+
+    def _schedule_fatal_shutdown(self) -> None:
+        self._schedule_process_exit(delay_secs=FATAL_EXIT_GRACE_SECS, exit_code=1)
+
+    def _schedule_process_exit(self, delay_secs: float, exit_code: int) -> None:
+        threading.Thread(
+            target=self._exit_after_delay,
+            args=(delay_secs, exit_code),
+            daemon=True,
+        ).start()
+
+    def _exit_after_delay(self, delay_secs: float, exit_code: int) -> None:
+        time.sleep(delay_secs)
+        self.close()
+        os._exit(exit_code)
+
+    def _fatal_status_response(self) -> dict[str, Any]:
+        return {
+            "type": "status",
+            "status": "error",
+            "message": self._fatal_error or "fatal daemon error",
+            "model_status": "error",
+            "warmup_status": self._warmup_status,
+            "accepting_requests": False,
+        }
 
     def _recv_line(self, conn: socket.socket) -> str:
         chunks = []
@@ -202,20 +423,34 @@ class CalmdServer:
         mode = req.get("mode")
         if mode == "health":
             return self._health_response()
+        if mode == "control":
+            return self._handle_control_request(req)
 
         query = (req.get("query") or "").strip()
         if not query:
             return {"type": "analysis", "answer": "Query is required"}
 
-        status = self._health_response()
-        if status["status"] != "ready":
+        status = self._begin_request()
+        if status is not None:
             return status
 
-        if mode == "analysis":
-            return self._answer_analysis(req)
-        if mode == "command":
-            return self._answer_command(req)
-        return {"type": "analysis", "answer": "Invalid mode"}
+        try:
+            while True:
+                try:
+                    if mode == "analysis":
+                        response = self._answer_analysis(req)
+                    elif mode == "command":
+                        response = self._answer_command(req)
+                    else:
+                        response = {"type": "analysis", "answer": "Invalid mode"}
+                    self._recovery_attempts = 0
+                    return response
+                except Exception as exc:
+                    recovery_status = self._recover_from_backend_crash(exc)
+                    if recovery_status is not None:
+                        return recovery_status
+        finally:
+            self._finish_request()
 
     def _answer_command(self, req: dict[str, Any]) -> dict[str, Any]:
         backend = self.backend
@@ -270,6 +505,60 @@ class CalmdServer:
             response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
         return response
 
+    def _handle_control_request(self, req: dict[str, Any]) -> dict[str, Any]:
+        action = req.get("action")
+        force = bool(req.get("force", False))
+
+        if action == "offload":
+            with self._state_lock:
+                is_loaded = self._model_loaded
+                is_offloaded = self._offloaded
+                is_loading = self._loading
+            if is_loaded:
+                self._offload_backend("cli request", force=True)
+                return {
+                    "type": "status",
+                    "status": "ready",
+                    "message": "calmd model offloaded",
+                }
+            if is_offloaded:
+                return {
+                    "type": "status",
+                    "status": "ready",
+                    "message": "calmd model already offloaded",
+                }
+            if is_loading:
+                return {
+                    "type": "status",
+                    "status": "initializing",
+                    "message": "calmd is loading; cannot offload yet",
+                }
+            return {
+                "type": "status",
+                "status": "ready",
+                "message": "calmd has no loaded model",
+            }
+
+        if action == "shutdown":
+            delay_secs = 0.0 if force else CONTROL_EXIT_DELAY_SECS
+            message = (
+                "calmd stopping immediately"
+                if force
+                else "calmd stopping gracefully"
+            )
+            self._schedule_process_exit(delay_secs=delay_secs, exit_code=0)
+            return {
+                "type": "status",
+                "status": "ready",
+                "message": message,
+            }
+
+        return {
+            "type": "status",
+            "status": "error",
+            "message": "Invalid control action",
+        }
+
     def _answer_analysis(self, req: dict[str, Any]) -> dict[str, Any]:
         backend = self.backend
         analysis_base_state = self.analysis_base_state
@@ -309,6 +598,8 @@ class CalmdServer:
 
     def _health_response(self) -> dict[str, Any]:
         with self._state_lock:
+            if self._fatal_error:
+                return self._fatal_status_response()
             if self._load_error:
                 return {
                     "type": "status",
@@ -317,6 +608,15 @@ class CalmdServer:
                     "model_status": "error",
                     "warmup_status": self._warmup_status,
                     "accepting_requests": False,
+                }
+            if self._offloaded:
+                return {
+                    "type": "status",
+                    "status": "ready",
+                    "message": "ready (model offloaded)",
+                    "model_status": "offloaded",
+                    "warmup_status": "pending",
+                    "accepting_requests": True,
                 }
             if self._ready:
                 return {
@@ -337,14 +637,14 @@ class CalmdServer:
                     "warmup_status": self._warmup_status,
                     "accepting_requests": False,
                 }
-        return {
-            "type": "status",
-            "status": "initializing",
-            "message": "model loading",
-            "model_status": "loading",
-            "warmup_status": self._warmup_status,
-            "accepting_requests": False,
-        }
+            return {
+                "type": "status",
+                "status": "initializing",
+                "message": "model loading" if self._loading else "model initializing",
+                "model_status": "loading" if self._loading else "not_loaded",
+                "warmup_status": self._warmup_status,
+                "accepting_requests": False,
+            }
 
     def _log(self, message: str) -> None:
         if not self.verbose:
