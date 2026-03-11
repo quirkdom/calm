@@ -266,7 +266,9 @@ class CalmdServer:
                     self._log("client disconnected before response was sent")
 
     def close(self) -> None:
-        self._shutting_down = True
+        with self._state_cv:
+            self._shutting_down = True
+            self._state_cv.notify_all()
         if self._server_socket is not None:
             self._server_socket.close()
             self._server_socket = None
@@ -274,21 +276,45 @@ class CalmdServer:
             self.socket_path.unlink()
 
     def _idle_offload_loop(self) -> None:
-        while not self._shutting_down:
-            time.sleep(1.0)
-            if self._idle_offload_secs < 0:
-                continue
-            with self._state_lock:
-                idle_for = time.monotonic() - self._last_activity_at
-                should_offload = (
-                    self._model_loaded
-                    and self._ready
-                    and not self._loading
-                    and self._active_requests == 0
-                    and idle_for >= self._idle_offload_secs
-                )
-            if should_offload:
-                self._offload_backend("idle timeout")
+        while True:
+            with self._state_cv:
+                if self._shutting_down:
+                    return
+                timeout = self._idle_offload_wait_timeout_locked()
+                if timeout is None:
+                    self._state_cv.wait()
+                    continue
+                was_notified = self._state_cv.wait(timeout=timeout)
+                if was_notified:
+                    continue
+                if not self._should_offload_locked():
+                    continue
+            self._offload_backend("idle timeout")
+
+    def _should_offload_locked(self) -> bool:
+        if self._idle_offload_secs < 0:
+            return False
+        idle_for = time.monotonic() - self._last_activity_at
+        return (
+            self._model_loaded
+            and self._ready
+            and not self._loading
+            and self._active_requests == 0
+            and idle_for >= self._idle_offload_secs
+        )
+
+    def _idle_offload_wait_timeout_locked(self) -> float | None:
+        if self._idle_offload_secs < 0:
+            return None
+        if not (
+            self._model_loaded
+            and self._ready
+            and not self._loading
+            and self._active_requests == 0
+        ):
+            return None
+        idle_for = time.monotonic() - self._last_activity_at
+        return max(0.0, self._idle_offload_secs - idle_for)
 
     def _offload_backend(self, reason: str, force: bool = False) -> None:
         with self._state_cv:
