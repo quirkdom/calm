@@ -2,6 +2,32 @@
 
 `calm` is a terminal-native CLI assistant that talks to a local `calmd` daemon over a Unix socket.
 
+## Configuration
+
+`calm` and `calmd` read `~/.config/calm/config.toml`.
+`calmd` creates that file with defaults on first start if it does not exist.
+Per key precedence is: CLI flag > environment variable > config file > code default.
+
+```toml
+[common]
+socket_path = "~/.cache/calmd/socket"
+
+[cli]
+wait_timeout_secs = 300
+shutdown_timeout_secs = 2
+
+[daemon]
+model_path = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
+use_fast_model = false
+verbose = false
+skip_warmup = false
+idle_offload_secs = 450
+
+[backend]
+disable_prefix_cache = false
+max_kv_size = 4096
+```
+
 ## Setup (uv)
 
 ```bash
@@ -46,8 +72,17 @@ Flags:
 - `-y` / `--yolo`: execute runnable command immediately
 - `-f` / `--force`: allow dangerous commands
 
-Optional: set `CALMD_SOCKET` to override socket path.
-Optional: set `CALMD_WAIT_TIMEOUT` (seconds) to change CLI wait time for daemon readiness.
+Optional env overrides:
+- `CALMD_SOCKET`
+- `CALMD_WAIT_TIMEOUT_SECS`
+- `CALMD_SHUTDOWN_TIMEOUT`
+- `CALMD_MODEL_PATH`
+- `CALMD_FAST_MODEL`
+- `CALMD_VERBOSE`
+- `CALMD_SKIP_WARMUP`
+- `CALMD_IDLE_OFFLOAD_SECS`
+- `CALMD_DISABLE_PREFIX_CACHE`
+- `CALMD_MAX_KV_SIZE`
 
 ## Development
 

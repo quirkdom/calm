@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import gc
-import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -11,6 +10,8 @@ from typing import Any, cast
 import mlx.core as mx
 from mlx.nn import Module
 from mlx_lm.tokenizer_utils import TokenizerWrapper
+
+from calm.config import CalmdConfig, load_calmd_config
 
 from .interface import InferenceBackend
 
@@ -24,7 +25,8 @@ class PromptState:
 
 
 class MLXBackend(InferenceBackend):
-    def __init__(self) -> None:
+    def __init__(self, config: CalmdConfig | None = None) -> None:
+        resolved_config = config or load_calmd_config()
         self.model: Module | None = None
         self.tokenizer: TokenizerWrapper | None = None
         self._generate_fn: Callable[..., str] | None = None
@@ -32,10 +34,8 @@ class MLXBackend(InferenceBackend):
         self._make_prompt_cache_fn: Callable[..., Any] | None = None
         self.last_metrics: dict[str, Any] = {}
         self._is_qwen35_model = False
-        self._disable_prefix_cache = (
-            os.environ.get("CALMD_DISABLE_PREFIX_CACHE", "0") == "1"
-        )
-        self._max_kv_size = int(os.environ.get("CALMD_MAX_KV_SIZE", "4096"))
+        self._disable_prefix_cache = resolved_config.disable_prefix_cache
+        self._max_kv_size = resolved_config.max_kv_size
 
     def load_model(self, model_path: str) -> None:
         from mlx_lm import generate, load  # type: ignore

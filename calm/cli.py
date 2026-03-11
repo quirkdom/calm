@@ -10,9 +10,8 @@ import sys
 import time
 from pathlib import Path
 
-SOCKET_PATH = Path(os.environ.get("CALMD_SOCKET", "~/.cache/calmd/socket")).expanduser()
-DAEMON_WAIT_TIMEOUT_SECS = float(os.environ.get("CALMD_WAIT_TIMEOUT", "300"))
-DAEMON_SHUTDOWN_TIMEOUT_SECS = float(os.environ.get("CALMD_SHUTDOWN_TIMEOUT", "2"))
+from calm.config import load_calm_cli_config
+
 DANGEROUS_TOKENS = {
     "rm",
     "mkfs",
@@ -114,11 +113,12 @@ def _parse_zsh_history(line: str) -> str | None:
 
 
 def make_request(payload: dict, ensure_running: bool = True) -> dict:
+    config = load_calm_cli_config()
     if ensure_running:
         ensure_daemon_running()
 
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.connect(str(SOCKET_PATH))
+        client.connect(str(config.socket_path))
         client.sendall((json.dumps(payload) + "\n").encode("utf-8"))
         data = _recv_line(client)
 
@@ -161,6 +161,7 @@ def execute_command(command: str) -> int:
 
 
 def ensure_daemon_running() -> None:
+    config = load_calm_cli_config()
     health = _check_daemon_health()
     if health and health.get("status") == "ready":
         return
@@ -168,7 +169,7 @@ def ensure_daemon_running() -> None:
     if health is None:
         start_calmd()
 
-    deadline = time.time() + DAEMON_WAIT_TIMEOUT_SECS
+    deadline = time.time() + config.wait_timeout_secs
     last_note = 0.0
     last_status = ""
     while time.time() < deadline:
@@ -187,8 +188,8 @@ def ensure_daemon_running() -> None:
         time.sleep(0.05)
 
     raise RuntimeError(
-        f"calmd not ready after {int(DAEMON_WAIT_TIMEOUT_SECS)}s; "
-        "set CALMD_WAIT_TIMEOUT to increase wait duration"
+        f"calmd not ready after {int(config.wait_timeout_secs)}s; "
+        "set CALMD_WAIT_TIMEOUT_SECS to increase wait duration"
     )
 
 
@@ -204,12 +205,13 @@ def notify_if_daemon_offloaded() -> None:
 
 
 def _check_daemon_health() -> dict | None:
-    if not SOCKET_PATH.exists():
+    config = load_calm_cli_config()
+    if not config.socket_path.exists():
         return None
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(1.0)
-            client.connect(str(SOCKET_PATH))
+            client.connect(str(config.socket_path))
             client.sendall((json.dumps({"mode": "health"}) + "\n").encode("utf-8"))
             raw = _recv_line(client)
         response = json.loads(raw)
@@ -227,7 +229,7 @@ def start_calmd() -> None:
     # Launch daemon as detached background process using the same Python env.
     cmd = [sys.executable, "-m", "calmd"]
     if "CALMD_SOCKET" in os.environ:
-        cmd.extend(["--socket", str(SOCKET_PATH)])
+        cmd.extend(["--socket", os.environ["CALMD_SOCKET"]])
     env = os.environ.copy()
     env["CALMD_SKIP_WARMUP"] = "1"
 
@@ -269,6 +271,7 @@ def offload_daemon() -> int:
 
 
 def terminate_daemon(force: bool) -> int:
+    config = load_calm_cli_config()
     if not daemon_is_running():
         print("calmd is not running", file=sys.stderr)
         return 0
@@ -280,7 +283,7 @@ def terminate_daemon(force: bool) -> int:
     if status != 0:
         return status
 
-    deadline = time.time() + DAEMON_SHUTDOWN_TIMEOUT_SECS
+    deadline = time.time() + config.shutdown_timeout_secs
     while time.time() < deadline:
         if not daemon_is_running():
             print("calmd stopped")

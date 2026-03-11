@@ -12,6 +12,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from calm.config import (
+    DEFAULT_MODEL_PATH,
+    FAST_MODEL_PATH,
+    ensure_default_config_file,
+    load_calmd_config,
+)
 from calmd.backend.interface import InferenceBackend
 from calmd.backend.mlx_backend import MLXBackend
 from calmd.prompts import (
@@ -21,10 +27,6 @@ from calmd.prompts import (
     render_command_prompt,
 )
 
-SOCKET_PATH = Path(os.environ.get("CALMD_SOCKET", "~/.cache/calmd/socket")).expanduser()
-DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-FAST_MODEL = "mlx-community/Qwen3.5-4B-OptiQ-4bit"
-DEFAULT_IDLE_OFFLOAD_SECS = 15 * 60
 MAX_AUTO_RECOVERIES = 3
 FATAL_EXIT_GRACE_SECS = 0.5
 CONTROL_EXIT_DELAY_SECS = 0.05
@@ -37,6 +39,7 @@ class CalmdServer:
         self.model_path = model_path
         self.socket_path = socket_path
         self.verbose = verbose
+        self.config = load_calmd_config()
         self.backend: InferenceBackend | None = None
         self.command_base_state: Any | None = None
         self.analysis_base_state: Any | None = None
@@ -50,11 +53,9 @@ class CalmdServer:
         self._state_lock = threading.Lock()
         self._state_cv = threading.Condition(self._state_lock)
         self._server_socket: socket.socket | None = None
-        self._skip_warmup = os.environ.get("CALMD_SKIP_WARMUP", "0") == "1"
+        self._skip_warmup = self.config.skip_warmup
         self._load_skip_warmup = self._skip_warmup
-        self._idle_offload_secs = int(
-            os.environ.get("CALMD_IDLE_OFFLOAD_SECS", str(DEFAULT_IDLE_OFFLOAD_SECS))
-        )
+        self._idle_offload_secs = self.config.idle_offload_secs
         self._last_activity_at = time.monotonic()
         self._active_requests = 0
         self._recovery_attempts = 0
@@ -64,20 +65,20 @@ class CalmdServer:
     def _init_backend(self, model_path: str) -> InferenceBackend:
         self._log(f"loading model backend: {model_path}")
         try:
-            backend = MLXBackend()
+            backend = MLXBackend(config=self.config)
             backend.load_model(model_path)
             self._log("mlx_lm backend loaded")
             return backend
         except Exception as exc:
-            if _is_oom_error(exc) and model_path != FAST_MODEL:
+            if _is_oom_error(exc) and model_path != FAST_MODEL_PATH:
                 print(
-                    f"warning: model load OOM for {model_path}; retrying with fast model {FAST_MODEL}",
+                    f"warning: model load OOM for {model_path}; retrying with fast model {FAST_MODEL_PATH}",
                     file=sys.stderr,
                 )
                 self._log("OOM detected, retrying fast model")
-                backend = MLXBackend()
-                backend.load_model(FAST_MODEL)
-                self.model_path = FAST_MODEL
+                backend = MLXBackend(config=self.config)
+                backend.load_model(FAST_MODEL_PATH)
+                self.model_path = FAST_MODEL_PATH
                 self._log("mlx_lm fast backend loaded")
                 return backend
             raise RuntimeError(
@@ -101,7 +102,10 @@ class CalmdServer:
         self._warmup_status = "pending"
 
     def _mark_loaded_locked(
-        self, backend: InferenceBackend, command_base_state: Any, analysis_base_state: Any
+        self,
+        backend: InferenceBackend,
+        command_base_state: Any,
+        analysis_base_state: Any,
     ) -> None:
         self.backend = backend
         self.command_base_state = command_base_state
@@ -391,12 +395,12 @@ class CalmdServer:
             return self._fatal_status_response()
 
         self._recovery_attempts = attempt
-        if _is_oom_error(exc) and self.model_path != FAST_MODEL:
+        if _is_oom_error(exc) and self.model_path != FAST_MODEL_PATH:
             print(
-                f"warning: backend crash looks like OOM; retrying with fast model {FAST_MODEL}",
+                f"warning: backend crash looks like OOM; retrying with fast model {FAST_MODEL_PATH}",
                 file=sys.stderr,
             )
-            self.model_path = FAST_MODEL
+            self.model_path = FAST_MODEL_PATH
 
         self._offload_backend("backend crash", force=True)
         self._start_background_load(on_demand=True)
@@ -568,9 +572,7 @@ class CalmdServer:
         if action == "shutdown":
             delay_secs = 0.0 if force else CONTROL_EXIT_DELAY_SECS
             message = (
-                "calmd stopping immediately"
-                if force
-                else "calmd stopping gracefully"
+                "calmd stopping immediately" if force else "calmd stopping gracefully"
             )
             self._schedule_process_exit(delay_secs=delay_secs, exit_code=0)
             return {
@@ -746,25 +748,47 @@ def _is_oom_error(exc: Exception) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
+    config = load_calmd_config()
     parser = argparse.ArgumentParser(
-        prog="calmd", description="calm local inference daemon"
+        prog="calmd",
+        description="Local inference daemon for the calm CLI tool. [C]alm [A]nswers via (local) [L]anguage [M]odels.",
     )
-    parser.add_argument("--model-path", default=DEFAULT_MODEL)
+    parser.add_argument(
+        "-m",
+        "--model-path",
+        default=None,
+        help=f"The path to the local model directory or Hugging Face repo. \
+        Otherwise defaults to preset ({DEFAULT_MODEL_PATH})",
+    )
     parser.add_argument(
         "--fast-model",
         action="store_true",
-        help=f"use fast model preset ({FAST_MODEL})",
+        default=None,
+        help=f"use fast model preset ({FAST_MODEL_PATH})",
     )
-    parser.add_argument("--socket", default=str(SOCKET_PATH))
+    parser.add_argument("--socket", default=None)
     parser.add_argument(
-        "--verbose", action="store_true", help="log raw requests/prompts/model outputs"
+        "--verbose",
+        action="store_true",
+        default=None,
+        help="log raw requests/prompts/model outputs",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    explicit_model_path = args.model_path is not None
+    args.model_path = args.model_path or config.model_path
+    if args.fast_model is None:
+        args.fast_model = False if explicit_model_path else config.use_fast_model
+    else:
+        args.fast_model = True
+    args.socket = args.socket or str(config.socket_path)
+    args.verbose = config.verbose if args.verbose is None else True
+    return args
 
 
 def main() -> int:
+    ensure_default_config_file()
     args = parse_args()
-    model_path = FAST_MODEL if args.fast_model else args.model_path
+    model_path = FAST_MODEL_PATH if args.fast_model else args.model_path
     server = CalmdServer(
         model_path=model_path,
         socket_path=Path(args.socket).expanduser(),

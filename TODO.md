@@ -2,6 +2,9 @@
 
 ## Bugs
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
+- [ ] Fast model path should be configurable.
+- [ ] Enable / Disable Thinking should be a configurable option.
+  - [ ] With thinking enabled, we will need to handle <think> markers.
 
 ## `calmd` Daemon improvements
 - [x] Implement custom KV caching for static system prompts.
@@ -22,9 +25,11 @@
 - [ ] Support multiple concurrent generations in `calmd`.
 
 ## UX / DX improvements
-- [ ] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
+- [x] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
 - [ ] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
   - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
 - [ ] Add command sanity validation (e.g. check if flags are correct for MacOS versions of the tools). See [SPEC.md](SPEC.md)
 - [ ] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
 - [ ] Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
+- [ ] Default wait timeout needs to be revisited; currently set to 300s. For initial startup, model download can take much longer and subsequent model loads are much faster (< 10s)
+- [ ] Chain queries in `calm`. e.g. `calm 'whats running in port 3000' | calm 'kill this process'`

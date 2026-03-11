@@ -23,6 +23,7 @@ calm CLI                    calmd daemon
 - **OOM behavior**: if model load or recovery hits OOM, `calmd` retries with the fast model.
 - **Thinking disabled**: Qwen 3.5 chat templating uses `enable_thinking=False`.
 - **No fallback backend**: if MLX cannot load the configured model, the daemon reports the failure reason and exits.
+- **Shared config file**: `calm` and `calmd` read `~/.config/calm/config.toml`; `calmd` writes defaults on first start.
 
 ## Prompt Cache Strategy
 
@@ -98,12 +99,17 @@ Approximate offload timing is acceptable: offload happens no earlier than the co
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `CALMD_SOCKET` | `~/.cache/calmd/socket` | Unix socket path |
-| `CALMD_WAIT_TIMEOUT` | `300` | How long `calm` waits for daemon readiness |
+| `CALMD_WAIT_TIMEOUT_SECS` | `300` | How long `calm` waits for daemon readiness |
 | `CALMD_SHUTDOWN_TIMEOUT` | `2` | How long `calm -k` waits before forcing shutdown |
-| `CALMD_IDLE_OFFLOAD_SECS` | `900` | Idle time before model auto-offload; set `< 0` to disable |
+| `CALMD_MODEL_PATH` | `mlx-community/Qwen3.5-9B-OptiQ-4bit` | Override daemon model path |
+| `CALMD_FAST_MODEL` | `0` | Set to `1` to force the fast-model preset |
+| `CALMD_VERBOSE` | `0` | Set to `1` to enable daemon debug logging |
+| `CALMD_IDLE_OFFLOAD_SECS` | `450` | Idle time before model auto-offload; set `< 0` to disable |
 | `CALMD_MAX_KV_SIZE` | `4096` | Max KV cache size for models without their own cache policy |
 | `CALMD_DISABLE_PREFIX_CACHE` | `0` | Set to `1` to disable prefix caching |
 | `CALMD_SKIP_WARMUP` | `0` | Set to `1` to skip warmup for normal daemon startup |
+
+These values can also be set in `~/.config/calm/config.toml`. Precedence is per key: CLI flag > environment variable > config file > code default.
 
 ## Safety
 
