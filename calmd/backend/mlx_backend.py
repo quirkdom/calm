@@ -60,8 +60,12 @@ class MLXBackend(InferenceBackend):
         self.last_metrics = {}
         self._is_qwen35_model = False
         gc.collect()
-        metal = getattr(mx, "metal", None)
-        clear_cache = getattr(metal, "clear_cache", None) if metal is not None else None
+        clear_cache = getattr(mx, "clear_cache", None)
+        if not callable(clear_cache):
+            metal = getattr(mx, "metal", None)
+            clear_cache = (
+                getattr(metal, "clear_cache", None) if metal is not None else None
+            )
         if callable(clear_cache):
             clear_cache()
 
