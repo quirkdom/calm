@@ -17,7 +17,7 @@
   - Should be able to use `mlx_lm.generate_stream` just like `mlx_lm.generate`.
   - Should be able to verbose log stats to our own logger.
   - Should be able to intercept and early-exit when our custom stop tokens are encountered.
-- [ ] Auto-load and offload of models in `calmd` + auto-recover after crashes.
+- [x] Auto-load and offload of models in `calmd` + auto-recover after crashes.
 - [ ] Make `calmd` auto-start on system boot + renice-able (give higher priority to CPU usage)
 - [ ] Support multiple concurrent generations in `calmd`.
 

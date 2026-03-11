@@ -7,77 +7,106 @@ calm CLI                    calmd daemon
 ├ stdin detection           ├ inference backend (mlx_lm)
 ├ shell history context     ├ tokenizer
 ├ command execution         ├ KV cached prompts
-└ Unix socket client        ├ candidate generation (3 samples)
-                             ├ candidate scoring (heuristics)
-                             └ response formatter
+├ daemon control flags      ├ health + control handlers
+└ Unix socket client        └ model lifecycle manager
 ```
 
-- **CLI-daemon separation**: `calm` CLI communicates with `calmd` daemon via Unix socket (`~/.cache/calmd/socket`)
-- **Two modes**: Command mode (suggests runnable commands) and Analysis mode (analyzes piped stdin)
+- **CLI-daemon separation**: `calm` talks to `calmd` over a Unix socket (`~/.cache/calmd/socket` by default).
+- **Two inference modes**: command mode suggests runnable shell commands; analysis mode answers questions about piped stdin.
+- **Control path**: the same socket also handles daemon lifecycle operations such as offload and shutdown.
 
-## ML/LLM Decisions
+## Model Backend
 
-- **Backend**: `mlx_lm` for Apple Silicon inference
+- **Backend**: `mlx_lm` on Apple Silicon.
 - **Default model**: `mlx-community/Qwen3.5-9B-OptiQ-4bit`
-- **Fast model**: `mlx-community/Qwen3.5-4B-OptiQ-4bit` (fallback on OOM)
-- **Thinking disabled**: Qwen 3.5 models use `enable_thinking=False`
-- **Prompt length constraint**: System prompts capped at 500 tokens for efficient KV caching
+- **Fast model**: `mlx-community/Qwen3.5-4B-OptiQ-4bit`
+- **OOM behavior**: if model load or recovery hits OOM, `calmd` retries with the fast model.
+- **Thinking disabled**: Qwen 3.5 chat templating uses `enable_thinking=False`.
+- **No fallback backend**: if MLX cannot load the configured model, the daemon reports the failure reason and exits.
 
-## KV Cache Strategy
+## Prompt Cache Strategy
 
-- Pre-fill system prompts at daemon startup into two cached states:
-  - `BASE_COMMAND_STATE`
-  - `BASE_ANALYSIS_STATE`
-- Requests clone the appropriate state and add user query, avoiding repeated prefill
-- **Max KV cache size**: 4096 tokens (configurable via `CALMD_MAX_KV_SIZE`). 
-  - **Note:** Only applies to models that don't have their own cache defined. 
-  - e.g. Qwen models have their own Linear + Dynamic cache implemented; they are not affected by this limit.
-- **Prefix caching**: Enabled by default, can be disabled via `CALMD_DISABLE_PREFIX_CACHE=1`
-- **Warmup**: Daemon runs a warmup pass at startup; skip with `CALMD_SKIP_WARMUP=1`
+- `calmd` builds two base prompt states:
+  - command mode system prompt
+  - analysis mode system prompt
+- Requests clone the appropriate base state, append request-specific prompt text, and generate from there.
+- Prefix caching is enabled by default and can be disabled with `CALMD_DISABLE_PREFIX_CACHE=1`.
+- `CALMD_MAX_KV_SIZE` controls prompt cache size for models that do not define their own cache behavior.
 
-## Configuration (Environment Variables)
+## Warmup Policy
 
-| Variable | Default | Description |
-| -------- | ------- |-------------|
-| `CALMD_SOCKET` | `~/.cache/calmd/socket` | Unix socket path |
-| `CALMD_WAIT_TIMEOUT` | `300` | CLI wait time for daemon readiness (seconds) |
-| `CALMD_MAX_KV_SIZE` | `4096` | Max KV cache size in tokens |
-| `CALMD_DISABLE_PREFIX_CACHE` | `0` | Set to `1` to disable prefix caching |
-| `CALMD_SKIP_WARMUP` | `0` | Set to `1` to skip daemon warmup |
+- Normal daemon startup warms the model unless `CALMD_SKIP_WARMUP=1`.
+- If `calm` auto-starts `calmd` for a waiting user query, it launches the daemon with `CALMD_SKIP_WARMUP=1` so the request is served immediately.
+- Any **on-demand** load or reload skips warmup unconditionally:
+  - reload after idle offload
+  - reload after crash recovery
+  - request-triggered initial load path while a request is waiting
+- The waiting user request acts as the practical warmup for those on-demand cases.
 
-## Candidate Sampling & Scoring
+## Auto-Offload Flow
 
-- Generate **3 candidates** with `temperature=0.3`, `max_tokens=96`
-- Score each candidate with heuristics:
-  - Valid command syntax: +3
-  - Known CLI tool: +2
-  - Analysis present in analysis mode: +2
-  - Hallucinated flags: -3
-- Select highest-scoring candidate
+1. `calmd` loads the model and becomes ready.
+2. After each completed request, the daemon records `last_activity_at`.
+3. An idle lifecycle thread waits on the daemon condition variable until either:
+   - daemon state changes, or
+   - the idle deadline is reached.
+4. If the model is still loaded, ready, and has no active requests once the deadline passes, `calmd` unloads the model.
+5. Health checks continue to report the daemon as `ready`, but with `model_status="offloaded"`.
+6. A later request from `calm` notices the daemon is offloaded, prints a short wake-up message, and sends the request.
+7. `calmd` reloads the model on demand, skips warmup, and answers the waiting request.
 
-## Generation Parameters
+Approximate offload timing is acceptable: offload happens no earlier than the configured timeout, but not necessarily at an exact second boundary.
 
-| Use case | Temperature | Max tokens | Top P | Stop |
-| -------- | ----------- | ---------- | ----- | ---- |
-| Final output | 0.1 | 96 | 1.0 | `\n\n` |
-| Candidate sampling | 0.3 | 96 | - | - |
+## Crash Recovery Flow
 
-## Performance Targets
+- Inference and warmup failures are treated as backend crashes.
+- `calmd` unloads and reloads the model automatically, then retries the waiting request.
+- OOM crashes switch to the fast model before retry.
+- Recovery is capped at **3 attempts** to avoid infinite crash loops.
+- After the third failed recovery, the daemon reports a fatal error and exits.
+- The recovery counter resets after a successful request.
 
-- First token latency: < 80ms
-- Full response: < 150ms
+## Health and Control Protocol
 
-## Stdin Limits
-
-- Max size: 64 KB
-- Max lines: 200
-
-## Safety
-
-- Dangerous commands blocked by default (`rm -rf /`, `mkfs`, `dd if=`, `shutdown`, `reboot`)
-- `--force` flag to bypass
+- `mode="health"` returns daemon status such as:
+  - `initializing`
+  - `warming_up`
+  - `ready`
+  - `error`
+- Health responses also include model state such as:
+  - `loading`
+  - `loaded`
+  - `offloaded`
+  - `error`
+- `mode="control"` supports:
+  - `action="offload"`: unload the current model without stopping the daemon
+  - `action="shutdown"`: stop the daemon process
 
 ## CLI Flags
 
-- `-y` / `--yolo`: Auto-execute runnable command
-- `-f` / `--force`: Allow dangerous commands
+- `-y` / `--yolo`: auto-execute a runnable command
+- `-f` / `--force`:
+  - allow dangerous generated shell commands
+  - with `-k`, request immediate daemon shutdown
+- `-x` / `--offload`: ask `calmd` to offload the model
+- `-k` / `--kill`: terminate `calmd`
+  - graceful by default
+  - if the daemon does not stop within the shutdown timeout, `calm` sends a forced shutdown request
+
+## Environment Variables
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `CALMD_SOCKET` | `~/.cache/calmd/socket` | Unix socket path |
+| `CALMD_WAIT_TIMEOUT` | `300` | How long `calm` waits for daemon readiness |
+| `CALMD_SHUTDOWN_TIMEOUT` | `2` | How long `calm -k` waits before forcing shutdown |
+| `CALMD_IDLE_OFFLOAD_SECS` | `900` | Idle time before model auto-offload; set `< 0` to disable |
+| `CALMD_MAX_KV_SIZE` | `4096` | Max KV cache size for models without their own cache policy |
+| `CALMD_DISABLE_PREFIX_CACHE` | `0` | Set to `1` to disable prefix caching |
+| `CALMD_SKIP_WARMUP` | `0` | Set to `1` to skip warmup for normal daemon startup |
+
+## Safety
+
+- Dangerous generated shell commands are blocked by default.
+- `--force` bypasses that CLI-side command safety check.
+- Daemon control operations use the socket protocol rather than direct process management from the CLI.
