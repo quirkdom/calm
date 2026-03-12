@@ -1,6 +1,7 @@
 # TODOs
 
 ## Bugs
+- [ ] Fix generation rails - the generated text is not in the correct format, hence mostly unparseable.
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
 - [ ] Fast model path should be configurable.
 - [ ] Enable / Disable Thinking should be a configurable option.

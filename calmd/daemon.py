@@ -519,6 +519,7 @@ class CalmdServer:
         self._log_inference_metrics(backend, mode="command")
         self._log(f"raw model output (command):\n{raw}")
         parsed = _parse_llm_json(raw)
+        self._log(f"parsed output (command):\n{parsed}")
 
         command = parsed.get("command")
         runnable = bool(parsed.get("runnable", False))
