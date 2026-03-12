@@ -367,7 +367,7 @@ wheels = [
 
 [[package]]
 name = "mlx-lm"
-version = "0.31.0"
+version = "0.31.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jinja2" },
@@ -379,9 +379,9 @@ dependencies = [
     { name = "sentencepiece" },
     { name = "transformers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9e/8b/4bec3e9c70ccbeac5d9af81f492ef36b98dc7dabb6a7a9d343fe407b7e40/mlx_lm-0.31.0.tar.gz", hash = "sha256:9c8922ecc934a531649548439f99fba48b274611235bc05498daca3ced4f1250", size = 284105, upload-time = "2026-03-07T03:49:29.759Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/f9/3f5597c62bd5733ebb3c9f96c33f2065db16353d743b8548bb05a01b7dd3/mlx_lm-0.31.1.tar.gz", hash = "sha256:1b2362ea301427004e5dda43b9241d751d4cb80eba641f6b85b29fc493affac5", size = 285473, upload-time = "2026-03-11T02:02:57.466Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/a3/7ec46abe6a0ee519d28bb676aede49a68c70bd1db6c05a7a480d018079cb/mlx_lm-0.31.0-py3-none-any.whl", hash = "sha256:112a2f18bfc95bd8bb0517f9f7cee00262f54fe0f18ed36d9b0fc2059c4a91bc", size = 393259, upload-time = "2026-03-07T03:49:27.909Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/8e/2e40713fc673d7268e32222752919075c0024b02635af56531d9ee8317b5/mlx_lm-0.31.1-py3-none-any.whl", hash = "sha256:bfc3e08e919b87bebb6fe2dbea980ece8ae8ee7132b31421aa0923c4286ecfa0", size = 393971, upload-time = "2026-03-11T02:02:54.973Z" },
 ]
 
 [[package]]
