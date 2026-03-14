@@ -9,6 +9,8 @@
 - [ ] Investigate high RAM usage by `calmd` even after offload (> 400MB).
 
 ## Packaging
+- [ ] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
+  - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
 - [ ] Figure out release workflow with GHA Actions + Github releases + PyPI publish
 - [ ] Figure out homebrew release workflow
 
@@ -33,14 +35,12 @@
 
 ## UX / DX improvements
 - [x] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
-- [ ] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
-  - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
+- [ ] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
+- [ ] Add command sanity validation (e.g. check if flags are correct for MacOS versions of the tools). See [SPEC.md](SPEC.md)
+- [ ] Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
+- [ ] Default wait timeout needs to be revisited; currently set to 300s. For initial startup, model download can take much longer and subsequent model loads are much faster (< 10s)
 - [ ] Formalize logging for both `calm` and `calmd`.
   - [ ] Replace ad hoc debug prints/env checks with a shared logging setup and explicit log levels.
   - [ ] Decide which logs belong on stderr vs LaunchAgent log files vs future structured logs.
-- [ ] Add command sanity validation (e.g. check if flags are correct for MacOS versions of the tools). See [SPEC.md](SPEC.md)
-- [ ] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
-- [ ] Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
-- [ ] Default wait timeout needs to be revisited; currently set to 300s. For initial startup, model download can take much longer and subsequent model loads are much faster (< 10s)
   - [ ] Also need better messaging during that wait period (what's happeneing? Is a model being downloaded?)
 - [ ] Chain queries in `calm`. e.g. `calm 'whats running in port 3000' | calm 'kill this process'`
