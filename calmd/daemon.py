@@ -12,8 +12,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from backend.interface import InferenceBackend
-
 from calm.config import (
     DEFAULT_MODEL_PATH,
     FAST_MODEL_PATH,
@@ -22,6 +20,7 @@ from calm.config import (
 )
 from calm.platform_support import ensure_supported_runtime
 
+from .backend.interface import InferenceBackend
 from .prompts import (
     ANALYSIS_MODE_SYSTEM_PROMPT,
     COMMAND_MODE_SYSTEM_PROMPT,
@@ -67,7 +66,7 @@ class CalmdServer:
     def _init_backend(self, model_path: str) -> InferenceBackend:
         self._log(f"loading model backend: {model_path}")
         try:
-            from backend.mlx_backend import MLXBackend
+            from .backend.mlx_backend import MLXBackend
 
             backend = MLXBackend(config=self.config)
             backend.load_model(model_path)

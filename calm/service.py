@@ -40,7 +40,9 @@ def find_custom_service() -> ManagedService | None:
 
 
 def find_homebrew_service() -> ManagedService | None:
-    if HOMEBREW_PLIST_PATH.exists() or _launchctl_service_exists(HOMEBREW_LAUNCHD_LABEL):
+    if HOMEBREW_PLIST_PATH.exists() or _launchctl_service_exists(
+        HOMEBREW_LAUNCHD_LABEL
+    ):
         return ManagedService(
             label=HOMEBREW_LAUNCHD_LABEL,
             plist_path=HOMEBREW_PLIST_PATH,
