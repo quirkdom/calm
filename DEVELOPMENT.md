@@ -79,4 +79,4 @@ Benchmark reports are written under `benchmarks/logs/` with timestamped filename
 
 ## Architecture
 
-Please refer to [ARCH.md](ARCH.md)
+Please refer to [ARCHITECTURE.md](ARCHITECTURE.md)

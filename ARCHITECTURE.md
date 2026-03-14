@@ -1,6 +1,4 @@
-# ARCH.md
-
-## Architecture
+# Architecture
 
 ```text
 calm CLI                    calmd daemon

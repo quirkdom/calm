@@ -40,7 +40,7 @@ git diff | calm "summarize what changed"
 
 ## What's under the hood?
 
-Please read [ARCH.md](ARCH.md).
+Please read [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Appendix
 
