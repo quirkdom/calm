@@ -489,6 +489,7 @@ def main() -> int:
         print("No command generated.", file=sys.stderr)
         return 1
 
+    # In a piped chain, we only want the clean output on stdout.
     print(command)
 
     if not runnable:
@@ -499,9 +500,14 @@ def main() -> int:
         return 1
 
     should_run = args.yolo
-    if not should_run:
-        answer = input("\nRun this command? [y/N] ").strip().lower()
-        should_run = answer in {"y", "yes"}
+    # Only prompt if stdout is a terminal (so we don't corrupt the pipe)
+    # AND stdin is a terminal (so we can actually read the user's y/n).
+    if not should_run and sys.stdout.isatty() and sys.stdin.isatty():
+        try:
+            answer = input("\nRun this command? [y/N] ").strip().lower()
+            should_run = answer in {"y", "yes"}
+        except EOFError:
+            pass
 
     if should_run:
         return execute_command(command)
