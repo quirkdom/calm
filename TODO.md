@@ -35,12 +35,13 @@
 
 ## UX / DX improvements
 - [x] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
+- [x] Chain queries in `calm`. e.g. `calm 'whats running in port 3000' | calm 'kill this process'`
+  - Partial support; needs better support once smart mode is implemented.
+- [ ] **Smart Mode:** Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
 - [ ] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
 - [ ] Add command sanity validation (e.g. check if flags are correct for MacOS versions of the tools). See [SPEC.md](SPEC.md)
-- [ ] Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
 - [ ] Default wait timeout needs to be revisited; currently set to 300s. For initial startup, model download can take much longer and subsequent model loads are much faster (< 10s)
 - [ ] Formalize logging for both `calm` and `calmd`.
   - [ ] Replace ad hoc debug prints/env checks with a shared logging setup and explicit log levels.
   - [ ] Decide which logs belong on stderr vs LaunchAgent log files vs future structured logs.
   - [ ] Also need better messaging during that wait period (what's happeneing? Is a model being downloaded?)
-- [ ] Chain queries in `calm`. e.g. `calm 'whats running in port 3000' | calm 'kill this process'`
