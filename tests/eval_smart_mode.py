@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 
 import pytest
@@ -13,7 +14,7 @@ def run_calm(query, stdin=None, args=None):
     cmd = ["uv", "run", "calm"]
     if args:
         cmd.extend(args)
-    cmd.append(f"'{query}'")
+    cmd.append(query)
 
     process = subprocess.Popen(
         cmd,
@@ -23,7 +24,7 @@ def run_calm(query, stdin=None, args=None):
         text=True,
     )
     stdout, stderr = process.communicate(input=stdin)
-    return stdout.strip(), stderr.strip(), process.returncode, " ".join(cmd)
+    return stdout.strip(), stderr.strip(), process.returncode, shlex.join(cmd)
 
 
 @pytest.fixture(scope="session", autouse=True)
