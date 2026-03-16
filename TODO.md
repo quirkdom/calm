@@ -7,6 +7,7 @@
 - [ ] Enable / Disable Thinking should be a configurable option.
   - [ ] With thinking enabled, we will need to handle <think> markers.
 - [ ] Investigate high RAM usage by `calmd` even after offload (> 400MB).
+- [ ] Fix deviation from protocol. e.g. [Codex review discussion](https://github.com/quirkdom/calm/pull/1#discussion_r2943131416)
 
 ## Packaging
 - [ ] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
