@@ -465,6 +465,8 @@ def main() -> int:
         "cwd": os.getcwd(),
         "os_name": os.uname().sysname,
         "stdout_isatty": sys.stdout.isatty(),
+        "force_command": args.command,
+        "force_analysis": args.analysis,
     }
 
     try:

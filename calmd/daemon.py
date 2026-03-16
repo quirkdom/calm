@@ -483,16 +483,18 @@ class CalmdServer:
             cwd=req.get("cwd") or os.getcwd(),
             os_name=req.get("os_name") or os.uname().sysname,
             stdout_isatty=req.get("stdout_isatty", True),
+            force_command=req.get("force_command", False),
+            force_analysis=req.get("force_analysis", False),
         )
         self._log(f"smart prompt:\n{prompt}")
         backend.prefill(state, prompt)
         raw = backend.generate_completion(
             state,
             {
-                "max_tokens": 128,
+                "max_tokens": 256,
                 "temperature": 0.1,
                 "stop": [
-                    "\n\n",
+                    "[/CONTENT]",
                     "<|endoftext|>",
                     "<|im_start|>",
                     "<think>",

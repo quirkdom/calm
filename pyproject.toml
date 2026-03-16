@@ -49,6 +49,7 @@ module-root = ""
 [dependency-groups]
 dev = [
     "basedpyright>=1.38.2",
+    "pytest>=9.0.2",
     "ruff>=0.8.0",
 ]
 
@@ -58,3 +59,6 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = ["E501"]
+
+[tool.pytest]
+python_files = ["test_*.py", "*_test.py", "eval_*.py", "*_eval.py"]

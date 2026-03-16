@@ -90,13 +90,20 @@ def render_smart_prompt(
     cwd: str,
     os_name: str,
     stdout_isatty: bool = True,
+    force_command: bool = False,
+    force_analysis: bool = False,
 ) -> str:
     parts = []
     if history:
         parts.append(f"Recent Command Context:\n{history.strip()}")
     if stdin_text:
         parts.append(f"Input Context (stdin):\n{stdin_text.strip()}")
-    parts.append(f"System Context: os={os_name}, shell={shell}, cwd={cwd}, stdout_is_tty={stdout_isatty}")
+    parts.append(
+        f"System Context: os={os_name}, shell={shell}, cwd={cwd}, "
+        f"stdout_is_tty={stdout_isatty}, "
+        f"user_expects_command={force_command}, "
+        f"user_expects_analysis={force_analysis}"
+    )
     parts.append(f"User Request: {query}")
     parts.append("\nResponse:")
     return "\n\n".join(parts)
