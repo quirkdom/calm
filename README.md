@@ -38,6 +38,15 @@ ps aux | calm "largest memory users"
 git diff | calm "summarize what changed"
 ```
 
+### Steering and Guardrails
+
+You can force a specific output type using the `-c` (`--command`) or `-a` (`--analysis`) flags:
+
+- **Force Command**: `calm -c "whats on port 3000"` ensures the model suggests a runnable command.
+- **Force Analysis**: `calm -a "install git"` ensures the model provides an explanation instead of a command.
+
+These flags also act as strict guardrails; if the model provides a mismatched type, the CLI will error out and refuse the output.
+
 ## What's under the hood?
 
 Please read [ARCHITECTURE.md](ARCHITECTURE.md).

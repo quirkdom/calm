@@ -11,8 +11,25 @@ calm CLI                    calmd daemon
 ```
 
 - **CLI-daemon split**: `calm` talks to `calmd` over a Unix socket (`~/.cache/calmd/socket` by default).
-- **Two request modes**: command mode suggests runnable shell commands; analysis mode answers questions about piped stdin.
+- **Unified Smart Mode**: `calm` uses a single context-aware mode that determines whether to suggest a command or provide an analysis answer based on query, stdin, and shell history.
 - **Shared config**: `calm` and `calmd` read `~/.config/calm/config.toml`; `calmd` creates it on first start.
+
+## Smart Mode Logic
+
+`calm` uses a tag-based structured output format from the model to handle different request types:
+
+- **Contextual Prioritization**: If piped `stdin` is present, the model prioritizes answering questions directly (Analysis) rather than suggesting commands, ensuring no data is lost in the pipe.
+- **Piping Awareness**: The model is aware if `stdout` is redirected (non-TTY) and prefers providing clean, concise strings suitable for further piping.
+- **Steering Flags**: Users can force specific output types using `-c` (`--command`) or `-a` (`--analysis`), which act as both steering hints for the model and strict guardrails for the CLI.
+
+## Layered Security
+
+Command execution follows a two-layer safety check:
+
+1. **Model Tagging**: The model evaluates the command's safety in context and provides a `[SAFE: YES|NO]` tag.
+2. **Hardcoded Checks**: The CLI runs a static regex check for known dangerous tokens (e.g., `rm -rf`, `mkfs`).
+
+If *either* check flags a command as unsafe, the CLI requires the `-f` (`--force`) flag to execute.
 
 ## Daemon Administration Model
 

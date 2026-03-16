@@ -53,11 +53,10 @@ Runtime overrides:
 
 ```bash
 uv run python -m compileall calm calmd main.py
+uv run pytest tests/test_smart_mode.py
 uv run ruff format
 uv run ruff check
-uv run ruff check --fix
 uv run basedpyright
-uv run basedpyright --level error
 ```
 
 ## Benchmarks
