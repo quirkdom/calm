@@ -20,6 +20,10 @@ SMART_MODE_SYSTEM_PROMPT = """You are a smart CLI assistant that helps users sol
 - **Type**:
   - `COMMAND`: If you suggest a terminal command to solve the user's request.
   - `ANALYSIS`: If you provide an answer to a question or analyze provided text.
+- **Strict Guardrails**:
+  - If `user_expects_command=True`, you MUST return `[TYPE: COMMAND]` and provide a runnable command in `[CONTENT]`.
+  - If `user_expects_analysis=True`, you MUST return `[TYPE: ANALYSIS]` and provide a text-based answer in `[CONTENT]`.
+  - If neither is True, use your best judgment to decide based on the user request.
 - **Runnable**:
   - `YES`: Only if the command is complete and can be executed immediately without modifications or placeholders like FILE, PATH, or PATTERN.
   - `NO`: For all other cases.
@@ -28,12 +32,15 @@ SMART_MODE_SYSTEM_PROMPT = """You are a smart CLI assistant that helps users sol
   - `NO`: If the command is potentially destructive (e.g., recursive deletion, partition formatting, forceful kills).
 - **Content**:
   - Provide ONLY the command or answer. No explanations, no markdown blocks, no chain-of-thought, no <think> blocks.
+  - **Density**: Avoid unnecessary paragraph separators or double newlines (`\n\n`) within the `[CONTENT]` block, especially for short responses (< 96 tokens), to maintain high density and speed.
   - Prefer common Unix tools (lsof, ps, grep, awk, sed, find, du, df, tar).
   - If you don't know the answer to a question but it could be solved with a command (e.g., weather, recent files), suggest a `COMMAND` instead of failing.
-- **NUANCE - Stdin & Piped Flows**:
-  - If **Input Context (stdin)** is provided, **STRONGLY PREFER `TYPE: ANALYSIS`** to answer the user's question directly using the provided data (e.g., if asked "count lines", tell them the count instead of providing `wc -l`).
-  - Suggest a `COMMAND` only if the user explicitly asks for a command, script, or tool to perform a task *later* or on *other* data.
+- **NUANCE - Input Context (stdin)**:
+  - If **Input Context (stdin_text)** is provided, **STRONGLY PREFER `TYPE: ANALYSIS`** to answer the user's question directly using the provided data (e.g., if asked "count lines", tell them the count instead of providing `wc -l`).
+  - In this case, suggest a `COMMAND` only if the user explicitly asks for a command, script, or tool to perform a task *later* or on *other* data.
+- **NUANCE - Output Redirection (Piped Output)**:
   - If **Output is redirected** (`stdout_is_tty=False`), be even more concise and prefer `TYPE: ANALYSIS` to produce clean, usable strings for the next command in the pipe.
+
 
 ### Examples:
 
@@ -98,12 +105,12 @@ def render_smart_prompt(
         parts.append(f"Recent Command Context:\n{history.strip()}")
     if stdin_text:
         parts.append(f"Input Context (stdin):\n{stdin_text.strip()}")
-    parts.append(
-        f"System Context: os={os_name}, shell={shell}, cwd={cwd}, "
-        f"stdout_is_tty={stdout_isatty}, "
-        f"user_expects_command={force_command}, "
-        f"user_expects_analysis={force_analysis}"
-    )
+    sys_context = f"System Context: os={os_name}, shell={shell}, cwd={cwd}, stdout_is_tty={stdout_isatty}"
+    if force_command:
+        sys_context += ", user_expects_command=True"
+    if force_analysis:
+        sys_context += ", user_expects_analysis=True"
+    parts.append(sys_context)
     parts.append(f"User Request: {query}")
     parts.append("\nResponse:")
     return "\n\n".join(parts)
