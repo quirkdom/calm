@@ -22,7 +22,6 @@ from calm.service import (
     start_service,
     stop_service,
     uninstall_service,
-    unset_skip_warmup_env,
 )
 
 DANGEROUS_TOKENS = {
@@ -189,35 +188,27 @@ def ensure_daemon_running() -> None:
 
     last_note = 0.0
     last_status = ""
-    pending_skip_warmup_unset = False
     if health is None:
         print("waiting for calmd (starting)...", file=sys.stderr)
         last_note = time.time()
         last_status = "starting"
-        pending_skip_warmup_unset = start_calmd(skip_warmup=True)
+        start_calmd(skip_warmup=True)
 
     deadline = time.time() + config.wait_timeout_secs
-    try:
-        while time.time() < deadline:
-            health = _check_daemon_health()
-            if pending_skip_warmup_unset and health is not None:
-                unset_skip_warmup_env()
-                pending_skip_warmup_unset = False
-            if health and health.get("status") == "ready":
-                return
-            if health and health.get("status") == "error":
-                message = health.get("message", "calmd failed to initialize")
-                raise RuntimeError(f"calmd failed to initialize: {message}")
-            now = time.time()
-            status = health.get("status", "starting") if health else "starting"
-            if now - last_note >= 5.0 or status != last_status:
-                print(f"waiting for calmd ({status})...", file=sys.stderr)
-                last_note = now
-                last_status = status
-            time.sleep(0.05)
-    finally:
-        if pending_skip_warmup_unset:
-            unset_skip_warmup_env()
+    while time.time() < deadline:
+        health = _check_daemon_health()
+        if health and health.get("status") == "ready":
+            return
+        if health and health.get("status") == "error":
+            message = health.get("message", "calmd failed to initialize")
+            raise RuntimeError(f"calmd failed to initialize: {message}")
+        now = time.time()
+        status = health.get("status", "starting") if health else "starting"
+        if now - last_note >= 5.0 or status != last_status:
+            print(f"waiting for calmd ({status})...", file=sys.stderr)
+            last_note = now
+            last_status = status
+        time.sleep(0.05)
 
     raise RuntimeError(
         f"calmd not ready after {int(config.wait_timeout_secs)}s; "
@@ -257,7 +248,7 @@ def _check_daemon_health() -> dict | None:
         return {"status": "initializing", "message": "invalid health response"}
 
 
-def start_calmd(skip_warmup: bool = False) -> bool:
+def start_calmd(skip_warmup: bool = False) -> None:
     started_at = time.monotonic()
     if debug_enabled():
         debug_log(f"start_calmd entered skip_warmup={skip_warmup}")
@@ -268,7 +259,7 @@ def start_calmd(skip_warmup: bool = False) -> bool:
             debug_log(
                 f"managed start completed elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
             )
-            return skip_warmup
+            return
         print(
             f"warning: failed to start managed calmd ({message}); falling back",
             file=sys.stderr,
@@ -295,7 +286,6 @@ def start_calmd(skip_warmup: bool = False) -> bool:
     debug_log(
         f"unmanaged start launched cmd={cmd!r} elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
     )
-    return False
 
 
 def daemon_is_running() -> bool:

@@ -115,30 +115,37 @@ def start_service(
     )
     if skip_warmup:
         set_skip_warmup_env()
-    service_exists = _launchctl_service_exists(service.label)
-    debug_log(f"launchctl service exists={service_exists} label={service.label}")
-    if not service_exists:
-        bootstrap = _run_launchctl(
-            ["bootstrap", _launchd_domain(), str(service.plist_path)],
+
+    try:
+        service_exists = _launchctl_service_exists(service.label)
+        debug_log(f"launchctl service exists={service_exists} label={service.label}")
+        if not service_exists:
+            bootstrap = _run_launchctl(
+                ["bootstrap", _launchd_domain(), str(service.plist_path)],
+                check=False,
+            )
+            if bootstrap.returncode != 0 and not _launchctl_service_exists(
+                service.label
+            ):
+                stderr = bootstrap.stderr.strip() or bootstrap.stdout.strip()
+                return 1, stderr or f"failed to bootstrap {service.label}"
+            debug_log(
+                "bootstrap loaded service; skipping kickstart because RunAtLoad starts it"
+            )
+            return 0, f"started calmd via {service.source}"
+
+        kickstart = _run_launchctl(
+            ["kickstart", "-k", f"{_launchd_domain()}/{service.label}"],
             check=False,
         )
-        if bootstrap.returncode != 0 and not _launchctl_service_exists(service.label):
-            stderr = bootstrap.stderr.strip() or bootstrap.stdout.strip()
-            return 1, stderr or f"failed to bootstrap {service.label}"
-        debug_log(
-            "bootstrap loaded service; skipping kickstart because RunAtLoad starts it"
-        )
+        if kickstart.returncode != 0:
+            stderr = kickstart.stderr.strip() or kickstart.stdout.strip()
+            return 1, stderr or f"failed to start {service.label}"
+
         return 0, f"started calmd via {service.source}"
-
-    kickstart = _run_launchctl(
-        ["kickstart", "-k", f"{_launchd_domain()}/{service.label}"],
-        check=False,
-    )
-    if kickstart.returncode != 0:
-        stderr = kickstart.stderr.strip() or kickstart.stdout.strip()
-        return 1, stderr or f"failed to start {service.label}"
-
-    return 0, f"started calmd via {service.source}"
+    finally:
+        if skip_warmup:
+            unset_skip_warmup_env()
 
 
 def stop_service() -> tuple[int, str]:
