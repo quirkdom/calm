@@ -667,9 +667,15 @@ def _parse_smart_tags(raw: str) -> dict[str, Any]:
     if content_match:
         out["content"] = content_match.group(1).strip()
     else:
-        # Fallback: everything not in tags is content.
-        cleaned = re.sub(r"\[.*?\]", "", text).strip()
-        out["content"] = cleaned
+        # Fallback: remove only specific metadata tags, preserving other bracket literals.
+        # This prevents stripping [0-9]+ regex classes or other valid bracketed content
+        # when the model fails to emit a closing [/CONTENT] tag.
+        cleaned = text
+        cleaned = re.sub(r"\[TYPE:\s*(?:COMMAND|ANALYSIS)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[RUNNABLE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[SAFE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[CONTENT\]", "", cleaned, flags=re.IGNORECASE)
+        out["content"] = cleaned.strip()
 
     return out
 
