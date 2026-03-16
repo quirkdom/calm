@@ -48,11 +48,10 @@ Runtime overrides:
 - `CALMD_DISABLE_PREFIX_CACHE`
 - `CALMD_MAX_KV_SIZE`
 
-
 ## Checks
 
 ```bash
-uv run python -m compileall calm calmd main.py
+uv run python -m compileall calm calmd
 uv run ruff format
 uv run ruff check
 uv run basedpyright
