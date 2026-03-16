@@ -3,11 +3,17 @@ import subprocess
 import pytest
 
 
+@pytest.fixture
+def verbose_runs(request):
+    # Enable if the custom flag is set OR if pytest verbosity is at least 2 (-vv)
+    return request.config.getoption("verbose") >= 2
+
+
 def run_calm(query, stdin=None, args=None):
     cmd = ["uv", "run", "calm"]
     if args:
         cmd.extend(args)
-    cmd.append(query)
+    cmd.append(f"'{query}'")
 
     process = subprocess.Popen(
         cmd,
@@ -17,7 +23,7 @@ def run_calm(query, stdin=None, args=None):
         text=True,
     )
     stdout, stderr = process.communicate(input=stdin)
-    return stdout.strip(), stderr.strip(), process.returncode
+    return stdout.strip(), stderr.strip(), process.returncode, " ".join(cmd)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -28,13 +34,17 @@ def setup_daemon():
     subprocess.run(["pkill", "-f", "calmd"], capture_output=True)
 
 
-def verify_smart_mode(test_case):
+def verify_smart_mode(test_case, verbose_runs=False):
     """Common logic for running calm and asserting results."""
-    stdout, stderr, code = run_calm(
+    stdout, stderr, code, cmd_str = run_calm(
         test_case["query"], stdin=test_case.get("stdin"), args=test_case.get("args")
     )
+
+    if verbose_runs:
+        print(f"COMMAND: {cmd_str}\nSTDOUT: {stdout}\nSTDERR: {stderr}\nCODE: {code}")
+
     assert test_case["expects"](stdout, stderr, code), (
-        f"\nSTDOUT: {stdout}\nSTDERR: {stderr}\nCODE: {code}"
+        f"COMMAND: {cmd_str}\nSTDOUT: {stdout}\nSTDERR: {stderr}\nCODE: {code}"
     )
 
 
@@ -71,8 +81,8 @@ class TestAnalysisPriority:
         ],
         ids=case_ids,
     )
-    def test_analysis(self, test_case):
-        verify_smart_mode(test_case)
+    def test_analysis(self, test_case, verbose_runs):
+        verify_smart_mode(test_case, verbose_runs)
 
 
 class TestCommandPreference:
@@ -94,8 +104,8 @@ class TestCommandPreference:
         ],
         ids=case_ids,
     )
-    def test_commands(self, test_case):
-        verify_smart_mode(test_case)
+    def test_commands(self, test_case, verbose_runs):
+        verify_smart_mode(test_case, verbose_runs)
 
 
 class TestGuardrails:
@@ -130,8 +140,8 @@ class TestGuardrails:
         ],
         ids=case_ids,
     )
-    def test_flags(self, test_case):
-        verify_smart_mode(test_case)
+    def test_flags(self, test_case, verbose_runs):
+        verify_smart_mode(test_case, verbose_runs)
 
 
 class TestPipedOutput:
@@ -150,8 +160,8 @@ class TestPipedOutput:
         ],
         ids=case_ids,
     )
-    def test_piping(self, test_case):
-        verify_smart_mode(test_case)
+    def test_piping(self, test_case, verbose_runs):
+        verify_smart_mode(test_case, verbose_runs)
 
 
 class TestMultilineOutput:
@@ -176,5 +186,5 @@ class TestMultilineOutput:
         ],
         ids=case_ids,
     )
-    def test_multiline(self, test_case):
-        verify_smart_mode(test_case)
+    def test_multiline(self, test_case, verbose_runs):
+        verify_smart_mode(test_case, verbose_runs)
