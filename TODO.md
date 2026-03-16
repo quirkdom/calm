@@ -1,7 +1,7 @@
 # TODOs
 
 ## Bugs
-- [ ] Fix generation rails - the generated text is not in the correct format, hence mostly unparseable.
+- [x] Fix generation rails - the generated text is not in the correct format, hence mostly unparseable.
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
 - [ ] Fast model path should be configurable.
 - [ ] Enable / Disable Thinking should be a configurable option.
@@ -13,6 +13,7 @@
   - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
 - [ ] Figure out release workflow with GHA Actions + Github releases + PyPI publish
 - [ ] Figure out homebrew release workflow
+- [ ] Don't package unncessary docs, benchmarks or tests.
 
 ## `calmd` Daemon improvements
 - [x] Implement custom KV caching for static system prompts.
@@ -22,7 +23,7 @@
 - [ ] Speed up inference
   - [x] Disable thinking, especially in Qwen-3.5 models.
   - [x] KV caching for static system prompts.
-  - [ ] Resuse prompt prefill across samples.
+  - [ ] Reuse prompt prefill across samples.
   - [ ] Truncate / cap stdin for analysis use-case. (Possibly provide a flag / ENV var to override that)
 - [ ] Implement our own version of `mlx_lm.generate` for use in [mlx_backend.py](calmd/backend/mlx_backend.py).
   - Should be able to use `mlx_lm.generate_stream` just like `mlx_lm.generate`.
@@ -37,11 +38,25 @@
 - [x] Make tool configurable with user dir config file. See [SPEC.md](SPEC.md)
 - [x] Chain queries in `calm`. e.g. `calm 'whats running in port 3000' | calm 'kill this process'`
   - Partial support; needs better support once smart mode is implemented.
-- [ ] **Smart Mode:** Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
-- [ ] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
+- [x] **Smart Mode:** Better situation-aware responses: give short analysis and/or command where possible. Depending on user intent, show one or both.
+- [ ] **Smart Mode:** Handling multi-faceted responses: when both analysis and command are pertinent, provide them in a structured way.
+      e.g. `uv run calm 'how to install git'` generates the `brew install git` command, and `uv run calm 'ways to install git'` generates an explanation of alternatives (homebrew or official website). 
+      - `uv run calm 'install git'` should just give the `brew install git` command.
+      - `uv run calm 'how to install git'` should offer to run the `brew install git` command and also note the alternative options available. Something like:
+    ```
+    $> uv run calm 'how to install git'
+    On macOS (Darwin), you can install Git using Homebrew:
+    
+    brew install git [Run this command? [y/N]] <BLINKING CARET HERE>
+    
+    Alternatively, you can download the installer from the official website: https://git-scm.com/download/mac
+    ```
+- [ ] Detect commands in text / analysis output and offer to run them.
+- [x] Improve prompt to give outputs in json format, and update daemon parsing logic. See [PROMPT.md](PROMPT.md)
 - [ ] Add command sanity validation (e.g. check if flags are correct for MacOS versions of the tools). See [SPEC.md](SPEC.md)
 - [ ] Default wait timeout needs to be revisited; currently set to 300s. For initial startup, model download can take much longer and subsequent model loads are much faster (< 10s)
 - [ ] Formalize logging for both `calm` and `calmd`.
   - [ ] Replace ad hoc debug prints/env checks with a shared logging setup and explicit log levels.
   - [ ] Decide which logs belong on stderr vs LaunchAgent log files vs future structured logs.
   - [ ] Also need better messaging during that wait period (what's happeneing? Is a model being downloaded?)
+- [ ] Support custom instructions from users via config file.
