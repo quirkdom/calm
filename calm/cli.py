@@ -58,6 +58,12 @@ def parse_args() -> argparse.Namespace:
         help="allow dangerous commands; with -d stop, force shutdown",
     )
     parser.add_argument(
+        "-c", "--command", action="store_true", help="force command output"
+    )
+    parser.add_argument(
+        "-a", "--analysis", action="store_true", help="force analysis/answer output"
+    )
+    parser.add_argument(
         "-d",
         "--daemon",
         choices=DAEMON_ACTIONS,
@@ -448,17 +454,17 @@ def main() -> int:
         return handle_daemon_action(args.daemon, force=args.force)
 
     stdin_text = detect_stdin()
-    mode = "analysis" if stdin_text is not None else "command"
     notify_if_daemon_offloaded()
 
     payload = {
         "query": args.query,
-        "mode": mode,
+        "mode": "smart",
         "stdin": stdin_text,
         "history": read_last_history_command(),
         "shell": os.path.basename(os.environ.get("SHELL", "")) or "unknown",
         "cwd": os.getcwd(),
         "os_name": os.uname().sysname,
+        "stdout_isatty": sys.stdout.isatty(),
     }
 
     try:
@@ -467,10 +473,6 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    if response.get("type") == "analysis":
-        print(response.get("answer", ""))
-        return 0
-
     if response.get("type") == "status":
         print(
             f"error: calmd status={response.get('status')}: {response.get('message', '')}",
@@ -478,25 +480,41 @@ def main() -> int:
         )
         return 1
 
-    if response.get("type") != "command":
-        print("error: invalid daemon response", file=sys.stderr)
+    res_type = response.get("type", "analysis")
+    content = response.get("content", "").strip()
+
+    if res_type == "analysis":
+        if args.command:
+            print(f"error: no command generated; analysis: {content}", file=sys.stderr)
+            return 1
+        print(content)
+        return 0
+
+    if res_type != "command":
+        print("error: invalid daemon response type", file=sys.stderr)
         return 1
 
-    command = response.get("command", "").strip()
-    runnable = bool(response.get("runnable", False))
+    if args.analysis:
+        print(f"error: no analysis generated; command: {content}", file=sys.stderr)
+        return 1
 
-    if not command:
-        print("No command generated.", file=sys.stderr)
+    if not content:
+        print("error: empty command generated", file=sys.stderr)
         return 1
 
     # In a piped chain, we only want the clean output on stdout.
-    print(command)
+    print(content)
 
+    runnable = bool(response.get("runnable", False))
     if not runnable:
         return 0
 
-    if is_dangerous(command) and not args.force:
-        print("Refusing dangerous command without --force", file=sys.stderr)
+    safe = bool(response.get("safe", True))
+    dangerous = is_dangerous(content)
+
+    if (dangerous or not safe) and not args.force:
+        reason = "dangerous" if dangerous else "potentially unsafe (flagged by model)"
+        print(f"Refusing {reason} command without --force", file=sys.stderr)
         return 1
 
     should_run = args.yolo
@@ -510,7 +528,7 @@ def main() -> int:
             pass
 
     if should_run:
-        return execute_command(command)
+        return execute_command(content)
 
     return 0
 
