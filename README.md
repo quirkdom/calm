@@ -1,4 +1,4 @@
-# calm 
+# calm
 
 **C**alm **A**nswers via (local) **L**anguage **M**odels
 
@@ -32,8 +32,8 @@ On first run `calm` will start `calmd` in the background, which will configure i
 ### Examples
 
 ```bash
-calm -f "kill what's running on port 3567"
-calm -y "top 5 memory processes"
+calm -y "top 5 memory processes"                # YOLO. Autoruns suggested command
+calm -f "kill what's running on port 3567"      # bypass dangerous command execution protection
 ps aux | calm "largest memory users"
 git diff | calm "summarize what changed"
 ```
@@ -42,7 +42,7 @@ git diff | calm "summarize what changed"
 
 You can force a specific output type using the `-c` (`--command`) or `-a` (`--analysis`) flags:
 
-- **Force Command**: `calm -c "whats on port 3000"` ensures the model suggests a runnable command.
+- **Force Command**: `calm -c "what's on port 3000"` ensures the model suggests a runnable command.
 - **Force Analysis**: `calm -a "install git"` ensures the model provides an explanation instead of a command.
 
 These flags also act as strict guardrails; if the model provides a mismatched type, the CLI will error out and refuse the output.
@@ -86,7 +86,7 @@ For the full list of environment variable overrides, local development commands,
 
 #### Auto-start
 
-`calm` auto-starts `calmd` if needed, preferring to start a managed service (Homebrew service or custom LaunchAgent) first. If neither managed option exists, `calm` may start an unmanaged `calmd` just to serve the request. 
+`calm` auto-starts `calmd` if needed, preferring to start a managed service (Homebrew service or custom LaunchAgent) first. If neither managed option exists, `calm` may start an unmanaged `calmd` just to serve the request.
 
 This unmanaged fallback can't be administered by `calm -d`. You can always ask `calm` to help terminate the unmanaged daemon later:
 

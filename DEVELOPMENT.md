@@ -53,10 +53,22 @@ Runtime overrides:
 
 ```bash
 uv run python -m compileall calm calmd main.py
-uv run pytest tests/test_smart_mode.py
 uv run ruff format
 uv run ruff check
 uv run basedpyright
+```
+
+## Evals
+
+```bash
+uv run pytest tests/eval_*.py
+```
+
+If you need to print debug output:
+
+```bash
+uv run pytest tests/eval_*.py --vv -s       # all debug output
+uv run pytest tests/eval_*.py -ra           # only for non-passing tests
 ```
 
 ## Benchmarks
