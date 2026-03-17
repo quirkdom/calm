@@ -183,7 +183,7 @@ def execute_command(command: str) -> int:
 def ensure_daemon_running() -> None:
     config = load_calm_cli_config()
     health = _check_daemon_health()
-    if health and health.get("status") == "ready":
+    if health and health.get("status") in ("ready", "warming_up"):
         return
 
     last_note = 0.0
@@ -197,7 +197,7 @@ def ensure_daemon_running() -> None:
     deadline = time.time() + config.wait_timeout_secs
     while time.time() < deadline:
         health = _check_daemon_health()
-        if health and health.get("status") == "ready":
+        if health and health.get("status") in ("ready", "warming_up"):
             return
         if health and health.get("status") == "error":
             message = health.get("message", "calmd failed to initialize")

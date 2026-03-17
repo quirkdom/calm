@@ -113,39 +113,33 @@ def start_service(
     debug_log(
         f"managed service detected: label={service.label} source={service.source}"
     )
-    if skip_warmup:
-        set_skip_warmup_env()
 
-    try:
-        service_exists = _launchctl_service_exists(service.label)
-        debug_log(f"launchctl service exists={service_exists} label={service.label}")
-        if not service_exists:
-            bootstrap = _run_launchctl(
-                ["bootstrap", _launchd_domain(), str(service.plist_path)],
-                check=False,
-            )
-            if bootstrap.returncode != 0 and not _launchctl_service_exists(
-                service.label
-            ):
-                stderr = bootstrap.stderr.strip() or bootstrap.stdout.strip()
-                return 1, stderr or f"failed to bootstrap {service.label}"
-            debug_log(
-                "bootstrap loaded service; skipping kickstart because RunAtLoad starts it"
-            )
-            return 0, f"started calmd via {service.source}"
-
-        kickstart = _run_launchctl(
-            ["kickstart", "-k", f"{_launchd_domain()}/{service.label}"],
+    service_exists = _launchctl_service_exists(service.label)
+    debug_log(f"launchctl service exists={service_exists} label={service.label}")
+    if not service_exists:
+        bootstrap = _run_launchctl(
+            ["bootstrap", _launchd_domain(), str(service.plist_path)],
             check=False,
         )
-        if kickstart.returncode != 0:
-            stderr = kickstart.stderr.strip() or kickstart.stdout.strip()
-            return 1, stderr or f"failed to start {service.label}"
-
+        if bootstrap.returncode != 0 and not _launchctl_service_exists(
+            service.label
+        ):
+            stderr = bootstrap.stderr.strip() or bootstrap.stdout.strip()
+            return 1, stderr or f"failed to bootstrap {service.label}"
+        debug_log(
+            "bootstrap loaded service; skipping kickstart because RunAtLoad starts it"
+        )
         return 0, f"started calmd via {service.source}"
-    finally:
-        if skip_warmup:
-            unset_skip_warmup_env()
+
+    kickstart = _run_launchctl(
+        ["kickstart", "-kp", f"{_launchd_domain()}/{service.label}"],
+        check=False,
+    )
+    if kickstart.returncode != 0:
+        stderr = kickstart.stderr.strip() or kickstart.stdout.strip()
+        return 1, stderr or f"failed to start {service.label}"
+
+    return 0, f"started calmd via {service.source}"
 
 
 def stop_service() -> tuple[int, str]:
@@ -222,24 +216,6 @@ def debug_log(message: str) -> None:
     if not debug_enabled():
         return
     print(f"[calm debug] {message}", file=sys.stderr, flush=True)
-
-
-def _set_launchd_env(name: str, value: str) -> None:
-    debug_log(f"launchctl setenv {name}={value}")
-    _run_launchctl(["setenv", name, value], check=False)
-
-
-def _unset_launchd_env(name: str) -> None:
-    debug_log(f"launchctl unsetenv {name}")
-    _run_launchctl(["unsetenv", name], check=False)
-
-
-def set_skip_warmup_env() -> None:
-    _set_launchd_env(SKIP_WARMUP_ENV_VAR, "1")
-
-
-def unset_skip_warmup_env() -> None:
-    _unset_launchd_env(SKIP_WARMUP_ENV_VAR)
 
 
 def _run_launchctl(

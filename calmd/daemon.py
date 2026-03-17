@@ -50,9 +50,11 @@ class CalmdServer:
         self._warmup_status = "pending"
         self._state_lock = threading.Lock()
         self._state_cv = threading.Condition(self._state_lock)
+        self._backend_lock = threading.Lock()
         self._server_socket: socket.socket | None = None
         self._skip_warmup = self.config.skip_warmup
         self._load_skip_warmup = self._skip_warmup
+        self._warmup_delay_secs = 3.0
         self._idle_offload_secs = self.config.idle_offload_secs
         self._last_activity_at = time.monotonic()
         self._active_requests = 0
@@ -129,12 +131,14 @@ class CalmdServer:
             self._fatal_error = message
 
     def _mark_warmup_complete_locked(self) -> None:
-        self._warmup_status = "done"
+        if self._warmup_status != "skipped":
+            self._warmup_status = "done"
         self._ready = True
 
     def _mark_warmup_failed_locked(self, message: str) -> None:
         # Warmup errors should not make daemon unusable.
-        self._warmup_status = "error"
+        if self._warmup_status != "skipped":
+            self._warmup_status = "error"
         self._warmup_error = message
         self._ready = True
 
@@ -162,10 +166,23 @@ class CalmdServer:
                 self._mark_loaded_locked(backend, smart_base_state)
                 self._state_cv.notify_all()
             self._log("model loaded")
-            if self._load_skip_warmup:
-                self._log("daemon ready (warmup skipped)")
-            else:
-                threading.Thread(target=self._warmup_backend, daemon=True).start()
+
+            with self._state_cv:
+                if self._load_skip_warmup:
+                    self._log("daemon ready (warmup skipped immediately)")
+                    return
+
+                # Reactive warmup: wait a few seconds before starting background inference.
+                # If a client connects and requests health/query, it will set _load_skip_warmup.
+                self._log(
+                    f"waiting {self._warmup_delay_secs}s before starting warmup..."
+                )
+                was_notified = self._state_cv.wait(timeout=self._warmup_delay_secs)
+                if was_notified or self._load_skip_warmup:
+                    self._log("daemon ready (warmup skipped due to client activity)")
+                    return
+
+            threading.Thread(target=self._warmup_backend, daemon=True).start()
         except Exception as exc:
             with self._state_cv:
                 self._mark_load_failed_locked(str(exc), fatal=True)
@@ -181,28 +198,29 @@ class CalmdServer:
             return
 
         try:
-            smart_state = backend.clone_state(smart_base_state)
-            backend.prefill(
-                smart_state,
-                render_smart_prompt(
-                    query="list files in current directory",
-                    stdin_text=None,
-                    history=None,
-                    shell="zsh",
-                    cwd=os.getcwd(),
-                    os_name=os.uname().sysname,
-                    stdout_isatty=True,
-                ),
-            )
-            backend.generate_completion(
-                smart_state,
-                {
-                    "max_tokens": 1,
-                    "temperature": 0.0,
-                    "stop": ["\n\n", "<|endoftext|>", "<|im_start|>"],
-                    "verbose": False,
-                },
-            )
+            with self._backend_lock:
+                smart_state = backend.clone_state(smart_base_state)
+                backend.prefill(
+                    smart_state,
+                    render_smart_prompt(
+                        query="list files in current directory",
+                        stdin_text=None,
+                        history=None,
+                        shell="zsh",
+                        cwd=os.getcwd(),
+                        os_name=os.uname().sysname,
+                        stdout_isatty=True,
+                    ),
+                )
+                backend.generate_completion(
+                    smart_state,
+                    {
+                        "max_tokens": 1,
+                        "temperature": 0.0,
+                        "stop": ["\n\n", "<|endoftext|>", "<|im_start|>"],
+                        "verbose": False,
+                    },
+                )
             with self._state_cv:
                 self._mark_warmup_complete_locked()
                 self._state_cv.notify_all()
@@ -228,6 +246,7 @@ class CalmdServer:
         def _shutdown(signum: int, frame: Any) -> None:
             _ = signum, frame
             self.close()
+            self._log("shutting down, bye!")
             raise SystemExit(0)
 
         signal.signal(signal.SIGINT, _shutdown)
@@ -333,7 +352,14 @@ class CalmdServer:
                         "warmup_status": self._warmup_status,
                         "accepting_requests": False,
                     }
-                if self._ready and self.backend is not None:
+                if self.backend is not None:
+                    if not self._ready:
+                        self._log("on-demand skip_warmup triggered by request")
+                        self._load_skip_warmup = True
+                        if self._warmup_status in ("pending", "in_progress"):
+                            self._warmup_status = "skipped"
+                        self._ready = True
+                        self._state_cv.notify_all()
                     return None
                 if not self._model_loaded and not self._loading and not self._offloaded:
                     self._load_skip_warmup = True
@@ -429,6 +455,15 @@ class CalmdServer:
         except json.JSONDecodeError:
             return {"type": "analysis", "answer": "Invalid request"}
 
+        # Signal that we have a client waiting, which will skip/cancel the
+        # background warmup delay.
+        with self._state_cv:
+            if not self._load_skip_warmup:
+                self._load_skip_warmup = True
+                if self._model_loaded and not self._ready:
+                    # If we are in the grace period, notify the load thread.
+                    self._state_cv.notify_all()
+
         mode = req.get("mode")
         if mode == "health":
             return self._health_response()
@@ -487,22 +522,23 @@ class CalmdServer:
             force_analysis=req.get("force_analysis", False),
         )
         self._log(f"smart prompt:\n{prompt}")
-        backend.prefill(state, prompt)
-        raw = backend.generate_completion(
-            state,
-            {
-                "max_tokens": 256,
-                "temperature": 0.1,
-                "stop": [
-                    "[/CONTENT]",
-                    "<|endoftext|>",
-                    "<|im_start|>",
-                    "<think>",
-                    "</think>",
-                ],
-                "verbose": self.verbose,
-            },
-        )
+        with self._backend_lock:
+            backend.prefill(state, prompt)
+            raw = backend.generate_completion(
+                state,
+                {
+                    "max_tokens": 256,
+                    "temperature": 0.1,
+                    "stop": [
+                        "[/CONTENT]",
+                        "<|endoftext|>",
+                        "<|im_start|>",
+                        "<think>",
+                        "</think>",
+                    ],
+                    "verbose": self.verbose,
+                },
+            )
         self._log_inference_metrics(backend, mode="smart")
         self._log(f"raw model output (smart):\n{raw}")
         parsed = _parse_smart_tags(raw)
@@ -671,8 +707,12 @@ def _parse_smart_tags(raw: str) -> dict[str, Any]:
         # This prevents stripping [0-9]+ regex classes or other valid bracketed content
         # when the model fails to emit a closing [/CONTENT] tag.
         cleaned = text
-        cleaned = re.sub(r"\[TYPE:\s*(?:COMMAND|ANALYSIS)\]", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\[RUNNABLE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(
+            r"\[TYPE:\s*(?:COMMAND|ANALYSIS)\]", "", cleaned, flags=re.IGNORECASE
+        )
+        cleaned = re.sub(
+            r"\[RUNNABLE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE
+        )
         cleaned = re.sub(r"\[SAFE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\[CONTENT\]", "", cleaned, flags=re.IGNORECASE)
         out["content"] = cleaned.strip()
