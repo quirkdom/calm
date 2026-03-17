@@ -18,13 +18,12 @@ from calm.config import (
     ensure_default_config_file,
     load_calmd_config,
 )
-from calmd.backend.interface import InferenceBackend
-from calmd.backend.mlx_backend import MLXBackend
-from calmd.prompts import (
-    ANALYSIS_MODE_SYSTEM_PROMPT,
-    COMMAND_MODE_SYSTEM_PROMPT,
-    render_analysis_prompt,
-    render_command_prompt,
+from calm.platform_support import ensure_supported_runtime
+
+from .backend.interface import InferenceBackend
+from .prompts import (
+    SMART_MODE_SYSTEM_PROMPT,
+    render_smart_prompt,
 )
 
 MAX_AUTO_RECOVERIES = 3
@@ -41,8 +40,7 @@ class CalmdServer:
         self.verbose = verbose
         self.config = load_calmd_config()
         self.backend: InferenceBackend | None = None
-        self.command_base_state: Any | None = None
-        self.analysis_base_state: Any | None = None
+        self.smart_base_state: Any | None = None
         self._load_error: str | None = None
         self._warmup_error: str | None = None
         self._ready = False
@@ -65,6 +63,8 @@ class CalmdServer:
     def _init_backend(self, model_path: str) -> InferenceBackend:
         self._log(f"loading model backend: {model_path}")
         try:
+            from .backend.mlx_backend import MLXBackend
+
             backend = MLXBackend(config=self.config)
             backend.load_model(model_path)
             self._log("mlx_lm backend loaded")
@@ -104,12 +104,10 @@ class CalmdServer:
     def _mark_loaded_locked(
         self,
         backend: InferenceBackend,
-        command_base_state: Any,
-        analysis_base_state: Any,
+        smart_base_state: Any,
     ) -> None:
         self.backend = backend
-        self.command_base_state = command_base_state
-        self.analysis_base_state = analysis_base_state
+        self.smart_base_state = smart_base_state
         self._model_loaded = True
         self._loading = False
         self._offloaded = False
@@ -121,8 +119,7 @@ class CalmdServer:
 
     def _mark_load_failed_locked(self, message: str, fatal: bool) -> None:
         self.backend = None
-        self.command_base_state = None
-        self.analysis_base_state = None
+        self.smart_base_state = None
         self._model_loaded = False
         self._loading = False
         self._ready = False
@@ -143,8 +140,7 @@ class CalmdServer:
 
     def _mark_offloaded_locked(self) -> None:
         self.backend = None
-        self.command_base_state = None
-        self.analysis_base_state = None
+        self.smart_base_state = None
         self._model_loaded = False
         self._ready = False
         self._offloaded = True
@@ -161,12 +157,9 @@ class CalmdServer:
     def _load_backend(self) -> None:
         try:
             backend = self._init_backend(self.model_path)
-            command_base_state = backend.build_base_state(COMMAND_MODE_SYSTEM_PROMPT)
-            analysis_base_state = backend.build_base_state(ANALYSIS_MODE_SYSTEM_PROMPT)
+            smart_base_state = backend.build_base_state(SMART_MODE_SYSTEM_PROMPT)
             with self._state_cv:
-                self._mark_loaded_locked(
-                    backend, command_base_state, analysis_base_state
-                )
+                self._mark_loaded_locked(backend, smart_base_state)
                 self._state_cv.notify_all()
             self._log("model loaded")
             if self._load_skip_warmup:
@@ -183,40 +176,26 @@ class CalmdServer:
     def _warmup_backend(self) -> None:
         with self._state_lock:
             backend = self.backend
-            command_base_state = self.command_base_state
-            analysis_base_state = self.analysis_base_state
-        if backend is None or command_base_state is None or analysis_base_state is None:
+            smart_base_state = self.smart_base_state
+        if backend is None or smart_base_state is None:
             return
 
         try:
-            command_state = backend.clone_state(command_base_state)
+            smart_state = backend.clone_state(smart_base_state)
             backend.prefill(
-                command_state,
-                render_command_prompt(
+                smart_state,
+                render_smart_prompt(
                     query="list files in current directory",
+                    stdin_text=None,
                     history=None,
                     shell="zsh",
                     cwd=os.getcwd(),
                     os_name=os.uname().sysname,
+                    stdout_isatty=True,
                 ),
             )
             backend.generate_completion(
-                command_state,
-                {
-                    "max_tokens": 1,
-                    "temperature": 0.0,
-                    "stop": ["\n\n", "<|endoftext|>", "<|im_start|>"],
-                    "verbose": False,
-                },
-            )
-
-            analysis_state = backend.clone_state(analysis_base_state)
-            backend.prefill(
-                analysis_state,
-                render_analysis_prompt("hello\nworld", "what does this contain?"),
-            )
-            backend.generate_completion(
-                analysis_state,
+                smart_state,
                 {
                     "max_tokens": 1,
                     "temperature": 0.0,
@@ -467,10 +446,14 @@ class CalmdServer:
         try:
             while True:
                 try:
-                    if mode == "analysis":
-                        response = self._answer_analysis(req)
+                    if mode == "smart":
+                        response = self._answer_smart(req)
+                    elif mode == "analysis":
+                        # Backward compatibility.
+                        response = self._answer_smart(req)
                     elif mode == "command":
-                        response = self._answer_command(req)
+                        # Backward compatibility.
+                        response = self._answer_smart(req)
                     else:
                         response = {"type": "analysis", "answer": "Invalid mode"}
                     self._recovery_attempts = 0
@@ -482,32 +465,36 @@ class CalmdServer:
         finally:
             self._finish_request()
 
-    def _answer_command(self, req: dict[str, Any]) -> dict[str, Any]:
+    def _answer_smart(self, req: dict[str, Any]) -> dict[str, Any]:
         backend = self.backend
-        command_base_state = self.command_base_state
-        if backend is None or command_base_state is None:
+        smart_base_state = self.smart_base_state
+        if backend is None or smart_base_state is None:
             return {
                 "type": "status",
                 "status": "initializing",
                 "message": "Model is still loading",
             }
-        state = backend.clone_state(command_base_state)
-        prompt = render_command_prompt(
+        state = backend.clone_state(smart_base_state)
+        prompt = render_smart_prompt(
             query=req["query"],
+            stdin_text=req.get("stdin"),
             history=req.get("history"),
             shell=req.get("shell") or "unknown",
             cwd=req.get("cwd") or os.getcwd(),
             os_name=req.get("os_name") or os.uname().sysname,
+            stdout_isatty=req.get("stdout_isatty", True),
+            force_command=req.get("force_command", False),
+            force_analysis=req.get("force_analysis", False),
         )
-        self._log(f"command prompt:\n{prompt}")
+        self._log(f"smart prompt:\n{prompt}")
         backend.prefill(state, prompt)
         raw = backend.generate_completion(
             state,
             {
-                "max_tokens": 96,
-                "temperature": 0.2,
+                "max_tokens": 256,
+                "temperature": 0.1,
                 "stop": [
-                    "\n\n",
+                    "[/CONTENT]",
                     "<|endoftext|>",
                     "<|im_start|>",
                     "<think>",
@@ -516,22 +503,17 @@ class CalmdServer:
                 "verbose": self.verbose,
             },
         )
-        self._log_inference_metrics(backend, mode="command")
-        self._log(f"raw model output (command):\n{raw}")
-        parsed = _parse_llm_json(raw)
-        self._log(f"parsed output (command):\n{parsed}")
+        self._log_inference_metrics(backend, mode="smart")
+        self._log(f"raw model output (smart):\n{raw}")
+        parsed = _parse_smart_tags(raw)
+        self._log(f"parsed output (smart):\n{parsed}")
 
-        command = parsed.get("command")
-        runnable = bool(parsed.get("runnable", False))
-        if not command:
-            response: dict[str, Any] = {
-                "type": "analysis",
-                "answer": parsed.get("analysis") or "No command found",
-            }
-            if req.get("include_metrics"):
-                response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
-            return response
-        response = {"type": "command", "command": command.strip(), "runnable": runnable}
+        response = {
+            "type": parsed.get("type", "analysis"),
+            "content": parsed.get("content", raw.strip()),
+            "runnable": parsed.get("runnable", False),
+            "safe": parsed.get("safe", True),
+        }
         if req.get("include_metrics"):
             response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
         return response
@@ -587,43 +569,6 @@ class CalmdServer:
             "status": "error",
             "message": "Invalid control action",
         }
-
-    def _answer_analysis(self, req: dict[str, Any]) -> dict[str, Any]:
-        backend = self.backend
-        analysis_base_state = self.analysis_base_state
-        if backend is None or analysis_base_state is None:
-            return {
-                "type": "status",
-                "status": "initializing",
-                "message": "Model is still loading",
-            }
-        state = backend.clone_state(analysis_base_state)
-        prompt = render_analysis_prompt(req.get("stdin") or "", req["query"])
-        self._log(f"analysis prompt:\n{prompt}")
-        backend.prefill(state, prompt)
-        raw = backend.generate_completion(
-            state,
-            {
-                "max_tokens": 96,
-                "temperature": 0.1,
-                "stop": [
-                    "\n\n",
-                    "<|endoftext|>",
-                    "<|im_start|>",
-                    "<think>",
-                    "</think>",
-                ],
-                "verbose": self.verbose,
-            },
-        )
-        self._log_inference_metrics(backend, mode="analysis")
-        self._log(f"raw model output (analysis):\n{raw}")
-        parsed = _parse_llm_json(raw)
-        answer = parsed.get("analysis") or parsed.get("answer") or raw.strip()
-        response: dict[str, Any] = {"type": "analysis", "answer": answer}
-        if req.get("include_metrics"):
-            response["metrics"] = dict(getattr(backend, "last_metrics", {}) or {})
-        return response
 
     def _health_response(self) -> dict[str, Any]:
         with self._state_lock:
@@ -697,30 +642,42 @@ class CalmdServer:
         )
 
 
-def _parse_llm_json(raw: str) -> dict[str, Any]:
+def _parse_smart_tags(raw: str) -> dict[str, Any]:
     text = _sanitize_model_text(raw)
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        obj = json.loads(text)
-        if isinstance(obj, dict):
-            return obj
-    except json.JSONDecodeError:
-        pass
+    out: dict[str, Any] = {
+        "type": "analysis",
+        "runnable": False,
+        "safe": True,
+        "content": "",
+    }
 
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match:
-        try:
-            obj = json.loads(match.group(0))
-            if isinstance(obj, dict):
-                return obj
-        except json.JSONDecodeError:
-            pass
+    type_match = re.search(r"\[TYPE:\s*(COMMAND|ANALYSIS)\]", text, re.IGNORECASE)
+    if type_match:
+        out["type"] = type_match.group(1).lower()
 
-    # Plain-text fallback from model output.
-    first = text.splitlines()[0].strip() if text else ""
-    return {"command": first or None, "analysis": text or None, "runnable": bool(first)}
+    runnable_match = re.search(r"\[RUNNABLE:\s*(YES|NO)\]", text, re.IGNORECASE)
+    if runnable_match:
+        out["runnable"] = runnable_match.group(1).upper() == "YES"
+
+    safe_match = re.search(r"\[SAFE:\s*(YES|NO)\]", text, re.IGNORECASE)
+    if safe_match:
+        out["safe"] = safe_match.group(1).upper() == "YES"
+
+    content_match = re.search(r"\[CONTENT\]([\s\S]*?)\[/CONTENT\]", text, re.IGNORECASE)
+    if content_match:
+        out["content"] = content_match.group(1).strip()
+    else:
+        # Fallback: remove only specific metadata tags, preserving other bracket literals.
+        # This prevents stripping [0-9]+ regex classes or other valid bracketed content
+        # when the model fails to emit a closing [/CONTENT] tag.
+        cleaned = text
+        cleaned = re.sub(r"\[TYPE:\s*(?:COMMAND|ANALYSIS)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[RUNNABLE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[SAFE:\s*(?:YES|NO)\]", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\[CONTENT\]", "", cleaned, flags=re.IGNORECASE)
+        out["content"] = cleaned.strip()
+
+    return out
 
 
 def _sanitize_model_text(text: str) -> str:
@@ -787,6 +744,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    if not ensure_supported_runtime("calmd"):
+        return 1
     ensure_default_config_file()
     args = parse_args()
     model_path = FAST_MODEL_PATH if args.fast_model else args.model_path

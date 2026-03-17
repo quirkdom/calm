@@ -3,26 +3,53 @@ requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
 
 [project]
-name = "calm"
+name = "calm-cli"
 version = "0.2.0"
 description = "[C]alm [A]nswers via (local) [L]anguage [M]odels"
-readme = "README.md"
-requires-python = ">=3.10"
 dependencies = [
     "mlx-lm>=0.31.0",
 ]
+requires-python = ">=3.10"
+authors = [
+    { name = "Abhishek Bhattacharya", email = "babhishek21@yahoo.co.in" },
+]
+readme = "README.md"
+license = "MIT"
+license-files = ["LICEN[CS]E"]
+keywords = ["cli", "llm", "mlx", "macos", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: Other/Proprietary License",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/quirkdom/calm"
+Repository = "https://github.com/quirkdom/calm.git"
+Issues = "https://github.com/quirkdom/calm/issues"
 
 [project.scripts]
 calm = "calm.cli:main"
 calmd = "calmd.daemon:main"
 
 [tool.uv.build-backend]
-module-name = ["calm", "calmd", "calmd.backend"]
+module-name = ["calm", "calmd"]
 module-root = ""
 
 [dependency-groups]
 dev = [
     "basedpyright>=1.38.2",
+    "pytest>=9.0.2",
     "ruff>=0.8.0",
 ]
 
@@ -32,3 +59,6 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 ignore = ["E501"]
+
+[tool.pytest]
+python_files = ["test_*.py", "*_test.py", "eval_*.py", "*_eval.py"]

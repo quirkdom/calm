@@ -1,12 +1,64 @@
 # calm
 
-`calm` is a terminal-native CLI assistant that talks to a local `calmd` daemon over a Unix socket.
+**C**alm **A**nswers via (local) **L**anguage **M**odels
 
-## Configuration
+`calm` is a CLI tool that answers simple questions using a local language model. `calm` runs and communicates with the `calmd` LM server daemon.
+
+Currently, only running **MLX** models on **Apple Silicon Macs** is supported. Please open an issue on GitHub to request other model backends and platforms.
+
+## Quick Start
+
+### Installation
+
+```bash
+brew install quirkdom/tap/calm  # Recommended. Easy and straightforward.
+
+# Package managers
+pipx install calm-cli
+uv tool install calm-cli
+python -m pip install calm-cli
+```
+
+The PyPI package name is `calm-cli`, but the installed commands are still `calm` and `calmd`.
+
+### First run
+
+```bash
+calm "what's running on port 3567?"
+```
+
+On first run `calm` will start `calmd` in the background, which will configure itself, load models and respond to your query. This may take a while depending on your system and network speed.
+
+### Examples
+
+```bash
+calm -y "top 5 memory processes"                # YOLO. Autoruns suggested command
+calm -f "kill what's running on port 3567"      # bypass dangerous command execution protection
+ps aux | calm "largest memory users"
+git diff | calm "summarize what changed"
+```
+
+### Steering and Guardrails
+
+You can force a specific output type using the `-c` (`--command`) or `-a` (`--analysis`) flags:
+
+- **Force Command**: `calm -c "what's on port 3000"` ensures the model suggests a runnable command.
+- **Force Analysis**: `calm -a "install git"` ensures the model provides an explanation instead of a command.
+
+These flags also act as strict guardrails; if the model provides a mismatched type, the CLI will error out and refuse the output.
+
+## What's under the hood?
+
+Please read [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Appendix
+
+### Configuration
 
 `calm` and `calmd` read `~/.config/calm/config.toml`.
-`calmd` creates that file with defaults on first start if it does not exist.
-Per key precedence is: CLI flag > environment variable > config file > code default.
+
+`calmd` creates this file with defaults on first start if it does not exist.
+Per-key precedence is: CLI flag > environment variable > config file > hardcoded default.
 
 ```toml
 [common]
@@ -18,7 +70,7 @@ shutdown_timeout_secs = 2
 
 [daemon]
 model_path = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-use_fast_model = false
+use_fast_model = false  # Default fast model is mlx-community/Qwen3.5-4B-OptiQ-4bit
 verbose = false
 skip_warmup = false
 idle_offload_secs = 450
@@ -28,75 +80,66 @@ disable_prefix_cache = false
 max_kv_size = 4096
 ```
 
-## Setup (uv)
+For the full list of environment variable overrides, local development commands, and benchmark instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
+### `calmd` Auto-Start and Offload
+
+#### Auto-start
+
+`calm` auto-starts `calmd` if needed, preferring to start a managed service (Homebrew service or custom LaunchAgent) first. If neither managed option exists, `calm` may start an unmanaged `calmd` just to serve the request.
+
+This unmanaged fallback can't be administered by `calm -d`. You can always ask `calm` to help terminate the unmanaged daemon later:
 
 ```bash
-uv sync
+> uv run calm 'terminate the calmd python daemon'
+pkill -f "calmd"
+
+Run this command? [y/N]
 ```
 
-## Run daemon
+#### Offload
+
+`calmd` automatically offloads models after periods of inactivity to save memory. This can be configured with the `idle_offload_secs` config option.
+
+You can also manually trigger an offload using the `offload` command:
 
 ```bash
-uv run calmd
+calm -d offload
 ```
 
-Default socket: `~/.cache/calmd/socket`
-Default model: `mlx-community/Qwen3.5-9B-OptiQ-4bit`
-Fast model option: `uv run calmd --fast-model` (`mlx-community/Qwen3.5-4B-OptiQ-4bit`)
-Verbose debug logs: `uv run calmd --verbose` (prints raw requests, prompts, and model outputs to stderr)
-Verbose mode also prints per-request inference timing (`inference_ms`) and model metadata.
-If default model load hits OOM, daemon retries with the fast model automatically.
+### Running `calmd` as a login service
 
-### Qwen 3.5 thinking behavior
+#### Homebrew-managed service
 
-For Qwen 3.5 models, `calmd` disables thinking mode during prompt rendering by using:
-
-```python
-tokenizer.apply_chat_template(..., enable_thinking=False)
-```
-
-This is applied only for Qwen 3.5 model paths.
-
-## Use CLI
+If installed via Homebrew, use Homebrew service management:
 
 ```bash
-uv run calm "what's running on port 3567"
-ps aux | uv run calm "largest memory"
+brew services start calm
+brew services stop calm
 ```
 
-`calm` auto-starts `calmd` if the daemon is not already running.
-When model startup/download is slow, `calm` waits for daemon readiness (default timeout: 300s).
+When a Homebrew service is installed, plain `calm` queries will prefer that service. Use `brew services` to administer it.
 
-Flags:
+#### Custom LaunchAgent managed by `calm -d`
 
-- `-y` / `--yolo`: execute runnable command immediately
-- `-f` / `--force`: allow dangerous commands
-
-Optional env overrides:
-- `CALMD_SOCKET`
-- `CALMD_WAIT_TIMEOUT_SECS`
-- `CALMD_SHUTDOWN_TIMEOUT`
-- `CALMD_MODEL_PATH`
-- `CALMD_FAST_MODEL`
-- `CALMD_VERBOSE`
-- `CALMD_SKIP_WARMUP`
-- `CALMD_IDLE_OFFLOAD_SECS`
-- `CALMD_DISABLE_PREFIX_CACHE`
-- `CALMD_MAX_KV_SIZE`
-
-## Development
+If you installed via PyPI, `pipx`, `uv tool`, or another non-Homebrew path, you can install a per-user LaunchAgent:
 
 ```bash
-uv run python -m compileall calm calmd main.py
+calm -d install
+calm -d start
 ```
 
-### Formatting, Linting and Type Checking
+Other useful commands:
 
 ```bash
-uv run ruff format                      # format
-uv run ruff check                       # lint
-uv run ruff check --fix                 # auto-fix lint issues
-
-uv run basedpyright                     # type check
-uv run basedpyright --level error       # only errors
+calm -d offload
+calm -d stop
+calm -d uninstall
 ```
+
+`calm -d install`, `start`, `stop`, and `uninstall` manage only the custom LaunchAgent created by `calm -d install`.
+If a Homebrew service is installed, use `brew services` instead.
+
+LaunchAgent logs are written to `~/Library/Logs/calmd/`.
+
+For daemon startup diagnostics, set `CALM_DEBUG_DAEMON=1` before running `calm`. This prints `launchctl` timing and daemon start-path debug logs to stderr.

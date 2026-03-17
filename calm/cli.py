@@ -11,6 +11,18 @@ import time
 from pathlib import Path
 
 from calm.config import load_calm_cli_config
+from calm.platform_support import ensure_supported_runtime
+from calm.service import (
+    debug_enabled,
+    debug_log,
+    find_custom_service,
+    find_homebrew_service,
+    install_service,
+    managed_service_status,
+    start_service,
+    stop_service,
+    uninstall_service,
+)
 
 DANGEROUS_TOKENS = {
     "rm",
@@ -25,6 +37,7 @@ DANGEROUS_TOKENS = {
     ">",
     ">>",
 }
+DAEMON_ACTIONS = ("install", "uninstall", "start", "stop", "offload")
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,13 +54,20 @@ def parse_args() -> argparse.Namespace:
         "-f",
         "--force",
         action="store_true",
-        help="allow dangerous commands; with -k, kill calmd immediately",
+        help="allow dangerous commands; with -d stop, force shutdown",
     )
     parser.add_argument(
-        "-x", "--offload", action="store_true", help="offload model from calmd"
+        "-c", "--command", action="store_true", help="force command output"
     )
     parser.add_argument(
-        "-k", "--kill", action="store_true", help="terminate the calmd daemon"
+        "-a", "--analysis", action="store_true", help="force analysis/answer output"
+    )
+    parser.add_argument(
+        "-d",
+        "--daemon",
+        choices=DAEMON_ACTIONS,
+        metavar="ACTION",
+        help="manage calmd: install, uninstall, start, stop, offload",
     )
     parser.add_argument("query", nargs="?", help="question or task")
     return parser.parse_args()
@@ -166,12 +186,15 @@ def ensure_daemon_running() -> None:
     if health and health.get("status") == "ready":
         return
 
-    if health is None:
-        start_calmd()
-
-    deadline = time.time() + config.wait_timeout_secs
     last_note = 0.0
     last_status = ""
+    if health is None:
+        print("waiting for calmd (starting)...", file=sys.stderr)
+        last_note = time.time()
+        last_status = "starting"
+        start_calmd(skip_warmup=True)
+
+    deadline = time.time() + config.wait_timeout_secs
     while time.time() < deadline:
         health = _check_daemon_health()
         if health and health.get("status") == "ready":
@@ -225,13 +248,31 @@ def _check_daemon_health() -> dict | None:
         return {"status": "initializing", "message": "invalid health response"}
 
 
-def start_calmd() -> None:
+def start_calmd(skip_warmup: bool = False) -> None:
+    started_at = time.monotonic()
+    if debug_enabled():
+        debug_log(f"start_calmd entered skip_warmup={skip_warmup}")
+    service = find_homebrew_service() or find_custom_service()
+    if service is not None:
+        status, message = start_service(skip_warmup=skip_warmup, service=service)
+        if status == 0:
+            debug_log(
+                f"managed start completed elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
+            )
+            return
+        print(
+            f"warning: failed to start managed calmd ({message}); falling back",
+            file=sys.stderr,
+        )
+        debug_log(f"managed start failed: {message}")
+
     # Launch daemon as detached background process using the same Python env.
     cmd = [sys.executable, "-m", "calmd"]
     if "CALMD_SOCKET" in os.environ:
         cmd.extend(["--socket", os.environ["CALMD_SOCKET"]])
     env = os.environ.copy()
-    env["CALMD_SKIP_WARMUP"] = "1"
+    if skip_warmup:
+        env["CALMD_SKIP_WARMUP"] = "1"
 
     subprocess.Popen(
         cmd,
@@ -241,6 +282,9 @@ def start_calmd() -> None:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
         close_fds=True,
+    )
+    debug_log(
+        f"unmanaged start launched cmd={cmd!r} elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
     )
 
 
@@ -270,7 +314,7 @@ def offload_daemon() -> int:
     return 0
 
 
-def terminate_daemon(force: bool) -> int:
+def stop_unmanaged_daemon(force: bool) -> int:
     config = load_calm_cli_config()
     if not daemon_is_running():
         print("calmd is not running", file=sys.stderr)
@@ -306,6 +350,22 @@ def terminate_daemon(force: bool) -> int:
     return 1
 
 
+def terminate_daemon(force: bool) -> int:
+    service, _loaded = managed_service_status()
+    if service is not None:
+        status, message = stop_service()
+        if status != 0:
+            print(f"error: {message}", file=sys.stderr)
+            return 1
+        print(message)
+        return 0
+    print(
+        "error: custom calmd LaunchAgent is not installed; `calm -d stop` only manages the LaunchAgent",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def _send_shutdown_request(force: bool) -> int:
     try:
         response = make_request(
@@ -327,38 +387,76 @@ def _send_shutdown_request(force: bool) -> int:
     return 0
 
 
+def handle_daemon_action(action: str, force: bool) -> int:
+    if action == "install":
+        status, message = install_service()
+        print(message, file=sys.stderr if status != 0 else sys.stdout)
+        return status
+    if action == "uninstall":
+        status, message = uninstall_service()
+        print(message, file=sys.stderr if status != 0 else sys.stdout)
+        return status
+    if action == "start":
+        if find_homebrew_service() is not None:
+            print(
+                "error: homebrew service detected; use `brew services` instead",
+                file=sys.stderr,
+            )
+            return 1
+        service = find_custom_service()
+        if service is None:
+            print(
+                "error: custom calmd LaunchAgent is not installed; run `calm -d install` first",
+                file=sys.stderr,
+            )
+            return 1
+        if daemon_is_running() and managed_service_status()[1] is False:
+            print(
+                "stopping unmanaged calmd before starting LaunchAgent-managed daemon",
+                file=sys.stderr,
+            )
+            status = stop_unmanaged_daemon(force=force)
+            if status != 0:
+                return status
+        status, message = start_service(skip_warmup=False, service=service)
+        print(message, file=sys.stderr if status != 0 else sys.stdout)
+        return status
+    if action == "stop":
+        return terminate_daemon(force=force)
+    if action == "offload":
+        return offload_daemon()
+    print(f"error: unsupported daemon action: {action}", file=sys.stderr)
+    return 1
+
+
 def main() -> int:
     args = parse_args()
-    if args.offload and args.kill:
-        print("error: choose either -x/--offload or -k/--kill", file=sys.stderr)
+    if args.daemon and args.query:
+        print("error: cannot combine query with -d/--daemon", file=sys.stderr)
         return 1
-    if (args.offload or args.kill) and args.query:
-        print(
-            "error: cannot combine query with -x/--offload nor -k/--kill",
-            file=sys.stderr,
-        )
-        return 1
-    if not (args.offload or args.kill) and not args.query:
+    if not args.daemon and not args.query:
         print("error: query is required", file=sys.stderr)
         return 1
+    if not ensure_supported_runtime("calm"):
+        return 1
 
-    if args.offload:
-        return offload_daemon()
-    if args.kill:
-        return terminate_daemon(force=args.force)
+    if args.daemon:
+        return handle_daemon_action(args.daemon, force=args.force)
 
     stdin_text = detect_stdin()
-    mode = "analysis" if stdin_text is not None else "command"
     notify_if_daemon_offloaded()
 
     payload = {
         "query": args.query,
-        "mode": mode,
+        "mode": "smart",
         "stdin": stdin_text,
         "history": read_last_history_command(),
         "shell": os.path.basename(os.environ.get("SHELL", "")) or "unknown",
         "cwd": os.getcwd(),
         "os_name": os.uname().sysname,
+        "stdout_isatty": sys.stdout.isatty(),
+        "force_command": args.command,
+        "force_analysis": args.analysis,
     }
 
     try:
@@ -367,10 +465,6 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    if response.get("type") == "analysis":
-        print(response.get("answer", ""))
-        return 0
-
     if response.get("type") == "status":
         print(
             f"error: calmd status={response.get('status')}: {response.get('message', '')}",
@@ -378,33 +472,55 @@ def main() -> int:
         )
         return 1
 
-    if response.get("type") != "command":
-        print("error: invalid daemon response", file=sys.stderr)
+    res_type = response.get("type", "analysis")
+    content = response.get("content", "").strip()
+
+    if res_type == "analysis":
+        if args.command:
+            print(f"error: no command generated; analysis: {content}", file=sys.stderr)
+            return 1
+        print(content)
+        return 0
+
+    if res_type != "command":
+        print("error: invalid daemon response type", file=sys.stderr)
         return 1
 
-    command = response.get("command", "").strip()
+    if args.analysis:
+        print(f"error: no analysis generated; command: {content}", file=sys.stderr)
+        return 1
+
+    if not content:
+        print("error: empty command generated", file=sys.stderr)
+        return 1
+
+    # In a piped chain, we only want the clean output on stdout.
+    print(content)
+
     runnable = bool(response.get("runnable", False))
-
-    if not command:
-        print("No command generated.", file=sys.stderr)
-        return 1
-
-    print(command)
-
     if not runnable:
         return 0
 
-    if is_dangerous(command) and not args.force:
-        print("Refusing dangerous command without --force", file=sys.stderr)
+    safe = bool(response.get("safe", True))
+    dangerous = is_dangerous(content)
+
+    if (dangerous or not safe) and not args.force:
+        reason = "dangerous" if dangerous else "potentially unsafe (flagged by model)"
+        print(f"Refusing {reason} command without --force", file=sys.stderr)
         return 1
 
     should_run = args.yolo
-    if not should_run:
-        answer = input("\nRun this command? [y/N] ").strip().lower()
-        should_run = answer in {"y", "yes"}
+    # Only prompt if stdout is a terminal (so we don't corrupt the pipe)
+    # AND stdin is a terminal (so we can actually read the user's y/n).
+    if not should_run and sys.stdout.isatty() and sys.stdin.isatty():
+        try:
+            answer = input("\nRun this command? [y/N] ").strip().lower()
+            should_run = answer in {"y", "yes"}
+        except EOFError:
+            pass
 
     if should_run:
-        return execute_command(command)
+        return execute_command(content)
 
     return 0
 
