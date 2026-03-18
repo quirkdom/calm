@@ -90,3 +90,33 @@ Benchmark reports are written under `benchmarks/logs/` with timestamped filename
 ## Architecture
 
 Please refer to [ARCHITECTURE.md](ARCHITECTURE.md)
+
+## Release
+
+### PyPI
+
+```bash
+uv build
+uv publish
+```
+
+> [!TIP]
+> Manual release to indices is not recommended. Please rely on the GHA [release](.github/workflows/release.yml) workflow instead.
+
+### Homebrew
+
+> [!CAUTION]
+> Ensure that the current package version is released and available on PyPI.
+
+To regenerate the Homebrew formula for `calm`:
+
+1. Navigate to the `packaging/homebrew` directory.
+2. Run the generation script:
+   ```bash
+   uv run generate-calm-formula.py > calm.rb
+   ```
+3. Test the formula locally:
+   ```bash
+   HOMEBREW_DEVELOPER=1 brew install --build-from-source ./calm.rb
+   ```
+4. To update the official tap, copy `calm.rb` to [quirkdom/homebrew-tap](https://github.com/quirkdom/homebrew-tap) under `Formula/calm.rb`.

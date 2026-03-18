@@ -1,6 +1,6 @@
 # calm
 
-**C**alm **A**nswers via (local) **L**anguage **M**odels
+<ins>**C**</ins>alm <ins>**A**</ins>nswers via (local) <ins>**L**</ins>anguage <ins>**M**</ins>odels
 
 `calm` is a CLI tool that answers simple questions using a local language model. `calm` runs and communicates with the `calmd` LM server daemon.
 

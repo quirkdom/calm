@@ -53,12 +53,33 @@ dev = [
     "ruff>=0.8.0",
 ]
 
+[tool.basedpyright]
+typeCheckingMode = "standard"
+
 [tool.ruff]
 target-version = "py310"
 
 [tool.ruff.lint]
+# extend-select = [
+#     "F",        # Pyflakes - logical errors
+#     "W",        # PyCodeStyle warnings
+#     "E",        # PyCodeStyle errors (PEP 8)
+#     "I",        # Import sorting (isort replacement)
+#     "UP",       # Python upgrade suggestions (pyupgrade)
+#     "C4",       # Comprehension improvements
+#     "FA",       # Future annotations
+#     "ISC",      # String concatenation
+#     "ICN",      # Import conventions (np, pd, plt)
+#     "RET",      # Return practices
+#     "SIM",      # Simplifications
+#     "TID",      # Tidy imports
+#     "TC",       # Type checking imports
+#     "PTH",      # Pathlib usage
+#     "TD",       # TODO discipline
+#     "NPY",      # NumPy conventions
+# ]
 select = ["E", "F", "I", "N", "W", "UP"]
-ignore = ["E501"]
+ignore = ["E501"] # Avoid enforcing line-length violations (`E501`)
 
 [tool.pytest]
 python_files = ["test_*.py", "*_test.py", "eval_*.py", "*_eval.py"]

@@ -2,19 +2,21 @@
 
 ## Bugs
 - [x] Fix generation rails - the generated text is not in the correct format, hence mostly unparseable.
+- [ ] Improve Homebrew services detection and handling. Currently, when installed via brew, `calm` cannot detect a registered Homebrew service to trigger.
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
 - [ ] Fast model path should be configurable.
 - [ ] Enable / Disable Thinking should be a configurable option.
   - [ ] With thinking enabled, we will need to handle <think> markers.
 - [ ] Investigate high RAM usage by `calmd` even after offload (> 400MB).
 - [ ] Fix deviation from protocol. e.g. [Codex review discussion](https://github.com/quirkdom/calm/pull/1#discussion_r2943131416)
+- [ ] `calm` should run commands in the exact same env/shell as the one it's running in
 
 ## Packaging
-- [ ] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
+- [x] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
   - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
 - [ ] Figure out release workflow with GHA Actions + Github releases + PyPI publish
 - [ ] Figure out homebrew release workflow
-- [ ] Don't package unncessary docs, benchmarks or tests.
+- [x] Don't package unncessary docs, benchmarks or tests.
 
 ## `calmd` Daemon improvements
 - [x] Implement custom KV caching for static system prompts.
