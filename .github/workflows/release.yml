@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Dry run (build only, skip publish)"
+        type: boolean
+        default: false
+      test-pypi:
+        description: "Publish to Test PyPI instead of PyPI"
+        type: boolean
+        default: false
+
+env:
+  DIST_ARTIFACT_NAME: dist-${{ github.ref_name }}
+
+jobs:
+  build:
+    if: ${{ github.event_name != 'release' || (!contains(github.event.release.name, '[skip ci release]') && !contains(github.event.release.body, '[skip ci release]')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.DIST_ARTIFACT_NAME }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 5
+
+  publish:
+    needs: build
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.test-pypi && 'testpypi' || 'pypi' }}
+      url: ${{ inputs.test-pypi && 'https://test.pypi.org/p/calm-cli' || 'https://pypi.org/p/calm-cli' }}
+    permissions:
+      id-token: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.DIST_ARTIFACT_NAME }}
+          path: dist/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.test-pypi }}
+        run: uv publish --trusted-publishing always dist/*
+
+      - name: Publish to Test PyPI
+        if: ${{ inputs.test-pypi }}
+        run: uv publish --trusted-publishing always --publish-url https://test.pypi.org/legacy/ dist/*
+
+  upload-release-assets:
+    needs: [build, publish]
+    if: ${{ github.event_name == 'release' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ env.DIST_ARTIFACT_NAME }}
+          path: dist/
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/* --repo "${{ github.repository }}"
