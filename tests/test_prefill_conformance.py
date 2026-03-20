@@ -30,7 +30,7 @@ class TestPrefillConformance(unittest.TestCase):
             idle_offload_secs=450,
             disable_prefix_cache=True,
             max_kv_size=4096,
-            prefill_completion=True,
+            disable_prefill_completion=False,
         )
 
         # Mock backend

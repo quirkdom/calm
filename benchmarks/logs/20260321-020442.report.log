@@ -3,11 +3,11 @@ rounds: 10
 model_path: mlx-community/Qwen3.5-9B-OptiQ-4bit
 enable_longtail: False
 control.features: prefix-cache,warmup
-experiment.features: prefill,prefix-cache,warmup
+experiment.features: prefill-completion,prefix-cache,warmup
 
 == Summary (control baseline -> experiment) ==
 control.features: prefix-cache,warmup
-experiment.features: prefill,prefix-cache,warmup
+experiment.features: prefill-completion,prefix-cache,warmup
 
 [command]
 e2e_ms:

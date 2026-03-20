@@ -12,7 +12,7 @@ from tests.conftest import run_calm
 )
 def test_prefill_conformance(query, expected_in_out, verbose_runs):
     stdout, stderr, code, cmd_str = run_calm(
-        query, env={"CALMD_PREFILL_COMPLETION": "1"}
+        query, env={"CALMD_DISABLE_PREFILL_COMPLETION": "0"}
     )
     # This evaluation is meant to be run on supported platforms.
     # On other platforms, it will fail with the "not supported" message,

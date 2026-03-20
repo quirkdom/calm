@@ -3,11 +3,11 @@ rounds: 10
 model_path: mlx-community/Qwen3.5-9B-OptiQ-4bit
 enable_longtail: False
 control.features: (none)
-experiment.features: prefill
+experiment.features: prefill-completion
 
 == Summary (control baseline -> experiment) ==
 control.features: (none)
-experiment.features: prefill
+experiment.features: prefill-completion
 
 [command]
 e2e_ms:

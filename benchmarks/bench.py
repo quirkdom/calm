@@ -177,7 +177,7 @@ def _start_daemon(
     env["CALMD_SOCKET"] = socket_path
     env["CALMD_DISABLE_PREFIX_CACHE"] = "0" if "prefix-cache" in features else "1"
     env["CALMD_SKIP_WARMUP"] = "0" if "warmup" in features else "1"
-    env["CALMD_PREFILL_COMPLETION"] = "1" if "prefill-completion" in features else "0"
+    env["CALMD_DISABLE_PREFILL_COMPLETION"] = "0" if "prefill-completion" in features else "1"
     cmd = [sys.executable, "-m", "calmd", "--socket", socket_path]
     if model_path:
         cmd.extend(["--model-path", model_path])
