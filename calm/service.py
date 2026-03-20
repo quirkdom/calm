@@ -121,7 +121,9 @@ def start_service(
             ["bootstrap", _launchd_domain(), str(service.plist_path)],
             check=False,
         )
-        if bootstrap.returncode != 0 and not _launchctl_service_exists(service.label):
+        if bootstrap.returncode != 0 and not _launchctl_service_exists(
+            service.label
+        ):
             stderr = bootstrap.stderr.strip() or bootstrap.stdout.strip()
             return 1, stderr or f"failed to bootstrap {service.label}"
         debug_log(

@@ -18,7 +18,6 @@ DEFAULT_SKIP_WARMUP = False
 DEFAULT_IDLE_OFFLOAD_SECS = 450  # 7 mins 30 secs
 DEFAULT_DISABLE_PREFIX_CACHE = False
 DEFAULT_MAX_KV_SIZE = 4096
-DEFAULT_DISABLE_PREFILL_COMPLETION = False
 
 CONFIG_PATH = Path("~/.config/calm/config.toml").expanduser()
 
@@ -40,7 +39,7 @@ class CalmdConfig:
     idle_offload_secs: int
     disable_prefix_cache: bool
     max_kv_size: int
-    disable_prefill_completion: bool
+    prefill_completion: bool
 
 
 def ensure_default_config_file() -> Path:
@@ -129,10 +128,10 @@ def load_calmd_config() -> CalmdConfig:
             default=DEFAULT_MAX_KV_SIZE,
             parser=_parse_int,
         ),
-        disable_prefill_completion=_resolve_config_value(
-            env_var="CALMD_DISABLE_PREFILL_COMPLETION",
-            raw_value=_lookup(data, "backend", "disable_prefill_completion"),
-            default=DEFAULT_DISABLE_PREFILL_COMPLETION,
+        prefill_completion=_resolve_config_value(
+            env_var="CALMD_PREFILL_COMPLETION",
+            raw_value=_lookup(data, "backend", "prefill_completion"),
+            default=False,
             parser=_parse_bool,
         ),
     )
@@ -226,5 +225,4 @@ idle_offload_secs = {DEFAULT_IDLE_OFFLOAD_SECS}
 [backend]
 disable_prefix_cache = false
 max_kv_size = {DEFAULT_MAX_KV_SIZE}
-disable_prefill_completion = false
 """
