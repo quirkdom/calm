@@ -522,7 +522,7 @@ class CalmdServer:
             force_analysis=req.get("force_analysis", False),
         )
         self._log(f"smart prompt:\n{prompt}")
-        prefill = "[TYPE:" if self.config.prefill_completion else None
+        prefill_response = "[TYPE:" if self.config.prefill_completion else None
         with self._backend_lock:
             backend.prefill(state, prompt)
             raw = backend.generate_completion(
@@ -539,7 +539,7 @@ class CalmdServer:
                     ],
                     "verbose": self.verbose,
                 },
-                prefill=prefill,
+                prefill_response=prefill_response,
             )
         self._log_inference_metrics(backend, mode="smart")
         self._log(f"raw model output (smart):\n{raw}")

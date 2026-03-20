@@ -57,7 +57,7 @@ class TestPrefillConformance(unittest.TestCase):
 
         # Verify prefill was passed
         args, kwargs = mock_backend.generate_completion.call_args
-        self.assertEqual(kwargs.get("prefill"), "[TYPE:")
+        self.assertEqual(kwargs.get("prefill_response"), "[TYPE:")
         self.assertEqual(response["content"], "4")
 
 
