@@ -108,7 +108,9 @@ class MLXBackend(InferenceBackend):
     def prefill(self, state: PromptState, tokens: str) -> None:
         state.user_prompt += tokens
 
-    def generate_completion(self, state: PromptState, params: dict[str, Any], prefill: str | None = None) -> str:
+    def generate_completion(
+        self, state: PromptState, params: dict[str, Any], prefill: str | None = None
+    ) -> str:
         if self.model is None or self.tokenizer is None or self._generate_fn is None:
             raise RuntimeError("Model is not loaded")
 
