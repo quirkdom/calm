@@ -17,6 +17,7 @@ with patch.dict("sys.modules", sys_modules):
     from calm.config import CalmdConfig
     from calmd.daemon import CalmdServer
 
+
 class TestPrefillConformance(unittest.TestCase):
     def test_prefill_passed_to_backend(self):
         # Setup config with prefill enabled
@@ -29,24 +30,25 @@ class TestPrefillConformance(unittest.TestCase):
             idle_offload_secs=450,
             disable_prefix_cache=True,
             max_kv_size=4096,
-            prefill_completion=True
+            prefill_completion=True,
         )
 
         # Mock backend
         mock_backend = MagicMock()
-        mock_backend.generate_completion.return_value = "[TYPE: ANALYSIS]\n[RUNNABLE: NO]\n[SAFE: YES]\n[CONTENT]\n4\n[/CONTENT]"
+        mock_backend.generate_completion.return_value = (
+            "[TYPE: ANALYSIS]\n[RUNNABLE: NO]\n[SAFE: YES]\n[CONTENT]\n4\n[/CONTENT]"
+        )
         mock_backend.last_metrics = {}
 
-        server = CalmdServer(model_path="test-model", socket_path=Path("/tmp/test.sock"), verbose=True)
-        server.config = config # Force config
+        server = CalmdServer(
+            model_path="test-model", socket_path=Path("/tmp/test.sock"), verbose=True
+        )
+        server.config = config  # Force config
         server.backend = mock_backend
         server.smart_base_state = MagicMock()
 
         # Simulate a smart request
-        req = {
-            "query": "what is 2+2",
-            "mode": "smart"
-        }
+        req = {"query": "what is 2+2", "mode": "smart"}
 
         # We need to mock _backend_lock and other state
         server._backend_lock = MagicMock()
@@ -57,6 +59,7 @@ class TestPrefillConformance(unittest.TestCase):
         args, kwargs = mock_backend.generate_completion.call_args
         self.assertEqual(kwargs.get("prefill"), "[TYPE:")
         self.assertEqual(response["content"], "4")
+
 
 if __name__ == "__main__":
     unittest.main()
