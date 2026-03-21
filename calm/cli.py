@@ -104,7 +104,9 @@ def format_history_context(limit: int = 5) -> str | None:
 
     parts = [f"Last Command:\n{commands[0]}"]
     if len(commands) > 1:
-        recent = "\n".join(f"{index}. {command}" for index, command in enumerate(commands, 1))
+        recent = "\n".join(
+            f"{index}. {command}" for index, command in enumerate(commands, 1)
+        )
         parts.append(f"Last {len(commands)} Commands:\n{recent}")
     return "\n\n".join(parts)
 
@@ -186,7 +188,12 @@ def _looks_like_calm_invocation(command: str) -> bool:
         return False
     if tokens[0] == "calm":
         return True
-    if len(tokens) >= 3 and tokens[0] == "uv" and tokens[1] == "run" and tokens[2] == "calm":
+    if (
+        len(tokens) >= 3
+        and tokens[0] == "uv"
+        and tokens[1] == "run"
+        and tokens[2] == "calm"
+    ):
         return True
     return False
 

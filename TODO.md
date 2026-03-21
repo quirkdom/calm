@@ -22,12 +22,17 @@
 - [x] Implement custom KV caching for static system prompts.
   - [x] Check if we need to use `mlx_lm.generate_stream` to support this
   - [x] Ensure that the `clone cache state -> add user query part to prompt -> generate` flow works correctly.
-- [ ] Explore prompt prefilling benefits.
+- [x] Explore prompt prefilling benefits.
+- [ ] Explore benefits of multi-sample generation.
+- [ ] Improve prefill method naming and design in MLXBackend
+  - The `prefill()` method is poorly named (accepts string, not tokens) and doesn't reflect LLM prefill phase
+  - Consider renaming to `append_user_content()` and moving `_render_chat_tokens` calls from `generate_completion` to this step
+  - This would create a clear separation: prefill step prepares tokenized prompt state, generate_completion handles (implicit) KV cache update and token generation
 - [ ] Speed up inference
   - [x] Disable thinking, especially in Qwen-3.5 models.
   - [x] KV caching for static system prompts.
-  - [ ] Reuse prompt prefill across samples.
-  - [ ] Truncate / cap stdin for analysis use-case. (Possibly provide a flag / ENV var to override that)
+  - [ ] ~~Reuse prompt prefill across samples.~~
+  - [x] Truncate / cap stdin for analysis use-case. (Possibly provide a flag / ENV var to override that)
 - [ ] Implement our own version of `mlx_lm.generate` for use in [mlx_backend.py](calmd/backend/mlx_backend.py).
   - Should be able to use `mlx_lm.generate_stream` just like `mlx_lm.generate`.
   - Should be able to verbose log stats to our own logger.
