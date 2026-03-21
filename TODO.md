@@ -7,12 +7,30 @@
 - [ ] Investigate high RAM usage by `calmd` even after offload (> 400MB).
 - [ ] Fix deviation from protocol. e.g. [Codex review discussion](https://github.com/quirkdom/calm/pull/1#discussion_r2943131416)
 - [ ] `calm` should run commands in the exact same env/shell as the one it's running in [[needs repo]]
-- [ ] Revisit guardrails (`-c` and `-a`). For example, `uv run calm -a 'how to install git?'` gives `error: no analysis generated; command: brew install git`. This is in our [smart mode eval](tests/eval_smart_mode.py).
+- [ ] Revisit guardrails (`-c` and `-a`).
+  - [ ] For example, `uv run calm -a 'how to install git?'` gives `error: no analysis generated; command: brew install git`. This is in our [smart mode eval](tests/eval_smart_mode.py).
+  - [ ] Another case: `calm -c 'find commits by Abhishek'` gives `error: no command generated; analysis: To find commits by Abhishek, use: git log --author="Abhishek" --pretty=format:"%H %s"`
+- [ ] Some `calm` commands are passing through into shell history context. e.g.
+    ```
+    Last Command:
+    calm -c 'find commits by Abhishek. make it pipeable' | calm 'what\'s the most common word in this'
+    
+    Last 5 Commands:
+    1. calm -c 'find commits by Abhishek. make it pipeable' | calm 'what\'s the most common word in this
+    2. calm -c 'find commits by Abhishek' | calm 'what\'s the most common word in this?'
+    3. calm -c 'find commits by Abhishek' | calm 'what\'s the most common word'
+    4. cls
+    5. calmd --verbose
+    ```
+- [ ] Qwen-3.5 generates a lot of commands with `runnable: no` annotation, even though they are perfectly runnable
+  - `calm -y "what's on port 3000" | calm -y "kill this"`
+  - `calm "list all my S3 buckets and what their size is"`
+- [ ] Fix tokenizer stop tokens. Tokenizer stops at `[/CONTENT]` so content misses closing tags.
 
 ## Packaging
 - [x] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
   - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
-- [ ] Figure out release workflow with GHA Actions + Github releases + PyPI publish
+- [x] Figure out release workflow with GHA Actions + Github releases + PyPI publish
 - [ ] Figure out homebrew release workflow
 - [x] Don't package unncessary docs, benchmarks or tests.
 
