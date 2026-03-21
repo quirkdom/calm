@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "calm-cli"
-version = "0.3.0"
+version = "0.4.0"
 description = "[C]alm [A]nswers via (local) [L]anguage [M]odels"
 dependencies = [
     "mlx-lm>=0.31.0",
@@ -21,7 +21,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: Other/Proprietary License",
     "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
