@@ -6,5 +6,12 @@ dist/
 wheels/
 *.egg-info
 
+# IDEs and editors
+.idea/
+
+# Dev tools
+.pytest_cache/
+.ruff_cache/
+
 # Virtual environments
 .venv

@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from calm.config import load_calm_cli_config
@@ -81,45 +82,119 @@ def detect_stdin() -> str | None:
 
 
 def read_last_history_command() -> str | None:
-    shell_path = os.environ.get("SHELL", "")
-    home = Path.home()
+    commands = read_recent_history_commands(limit=1)
+    return commands[0] if commands else None
 
-    if shell_path.endswith("zsh"):
-        path = home / ".zsh_history"
-        parser = _parse_zsh_history
-    elif shell_path.endswith("bash"):
-        path = home / ".bash_history"
-        parser = _parse_plain_history
-    else:
-        for candidate in (home / ".zsh_history", home / ".bash_history"):
-            if candidate.exists():
-                path = candidate
-                parser = (
-                    _parse_zsh_history
-                    if candidate.name == ".zsh_history"
-                    else _parse_plain_history
-                )
-                break
-        else:
-            return None
 
-    if not path.exists():
+def read_recent_history_commands(limit: int = 5) -> list[str]:
+    if limit <= 0:
+        return []
+
+    for path, parser in _history_sources():
+        commands = _read_commands_from_history(path, parser, limit=limit)
+        if commands:
+            return commands
+    return []
+
+
+def format_history_context(limit: int = 5) -> str | None:
+    commands = read_recent_history_commands(limit=limit)
+    if not commands:
         return None
 
+    parts = [f"Last Command:\n{commands[0]}"]
+    if len(commands) > 1:
+        recent = "\n".join(f"{index}. {command}" for index, command in enumerate(commands, 1))
+        parts.append(f"Last {len(commands)} Commands:\n{recent}")
+    return "\n\n".join(parts)
+
+
+def _history_sources() -> list[tuple[Path, Callable[[str], str | None]]]:
+    shell_path = os.environ.get("SHELL", "")
+    home = Path.home()
+    shell_name = os.path.basename(shell_path)
+
+    sources = {
+        "zsh": (home / ".zsh_history", _parse_zsh_history),
+        "bash": (home / ".bash_history", _parse_bash_history),
+        "fish": (
+            home / ".local" / "share" / "fish" / "fish_history",
+            _parse_fish_history,
+        ),
+    }
+
+    ordered: list[tuple[Path, Callable[[str], str | None]]] = []
+    preferred = sources.get(shell_name)
+    if preferred is not None:
+        ordered.append(preferred)
+
+    for name, source in sources.items():
+        if name != shell_name:
+            ordered.append(source)
+
+    existing = [(path, parser) for path, parser in ordered if path.exists()]
+    existing.sort(
+        key=lambda item: (
+            item[0] != (preferred[0] if preferred is not None else None),
+            -item[0].stat().st_mtime,
+        ),
+    )
+    return existing
+
+
+def _read_commands_from_history(
+    path: Path,
+    parser: Callable[[str], str | None],
+    limit: int,
+) -> list[str]:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return None
+        return []
 
+    commands: list[str] = []
     for line in reversed(lines):
         cmd = parser(line)
         if cmd:
-            return cmd
-    return None
+            normalized = _normalize_command(cmd)
+            if not normalized or _looks_like_calm_invocation(normalized):
+                continue
+            commands.append(normalized)
+            if len(commands) >= limit:
+                break
+    return commands
 
 
-def _parse_plain_history(line: str) -> str | None:
+def _normalize_command(command: str) -> str:
+    return " ".join(command.split())
+
+
+def _looks_like_calm_invocation(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+
+    while tokens and "=" in tokens[0] and not tokens[0].startswith(("/", "./")):
+        name, _, value = tokens[0].partition("=")
+        if name and value:
+            tokens = tokens[1:]
+            continue
+        break
+
+    if not tokens:
+        return False
+    if tokens[0] == "calm":
+        return True
+    if len(tokens) >= 3 and tokens[0] == "uv" and tokens[1] == "run" and tokens[2] == "calm":
+        return True
+    return False
+
+
+def _parse_bash_history(line: str) -> str | None:
     text = line.strip()
+    if text.startswith("#") and text[1:].isdigit():
+        return None
     return text or None
 
 
@@ -130,6 +205,45 @@ def _parse_zsh_history(line: str) -> str | None:
     if line.startswith(":") and ";" in line:
         return line.split(";", 1)[1].strip() or None
     return line
+
+
+def _parse_fish_history(line: str) -> str | None:
+    line = line.strip()
+    prefix = "- cmd:"
+    if not line.startswith(prefix):
+        return None
+    return _decode_fish_history_command(line[len(prefix) :].lstrip())
+
+
+def _decode_fish_history_command(command: str) -> str | None:
+    if not command:
+        return None
+
+    decoded: list[str] = []
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if char != "\\":
+            decoded.append(char)
+            index += 1
+            continue
+
+        index += 1
+        if index >= len(command):
+            decoded.append("\\")
+            break
+
+        escaped = command[index]
+        if escaped == "n":
+            decoded.append("\n")
+        elif escaped == "\\":
+            decoded.append("\\")
+        else:
+            decoded.append(escaped)
+        index += 1
+
+    text = "".join(decoded).strip()
+    return text or None
 
 
 def make_request(payload: dict, ensure_running: bool = True) -> dict:
@@ -450,7 +564,7 @@ def main() -> int:
         "query": args.query,
         "mode": "smart",
         "stdin": stdin_text,
-        "history": read_last_history_command(),
+        "history": format_history_context(limit=5),
         "shell": os.path.basename(os.environ.get("SHELL", "")) or "unknown",
         "cwd": os.getcwd(),
         "os_name": os.uname().sysname,
