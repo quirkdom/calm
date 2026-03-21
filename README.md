@@ -49,7 +49,7 @@ These flags also act as strict guardrails; if the model provides a mismatched ty
 
 ## What's under the hood?
 
-Please read [ARCHITECTURE.md](ARCHITECTURE.md).
+Please read [ARCHITECTURE.md](ARCHITECTURE.md) or [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/quirkdom/calm)
 
 ## Appendix
 
