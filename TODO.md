@@ -4,12 +4,10 @@
 - [x] Fix generation rails - the generated text is not in the correct format, hence mostly unparseable.
 - [ ] Improve Homebrew services detection and handling. Currently, when installed via brew, `calm` cannot detect a registered Homebrew service to trigger.
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
-- [ ] Fast model path should be configurable.
-- [ ] Enable / Disable Thinking should be a configurable option.
-  - [ ] With thinking enabled, we will need to handle <think> markers.
 - [ ] Investigate high RAM usage by `calmd` even after offload (> 400MB).
 - [ ] Fix deviation from protocol. e.g. [Codex review discussion](https://github.com/quirkdom/calm/pull/1#discussion_r2943131416)
-- [ ] `calm` should run commands in the exact same env/shell as the one it's running in
+- [ ] `calm` should run commands in the exact same env/shell as the one it's running in [[needs repo]]
+- [ ] Revisit guardrails (`-c` and `-a`). For example, `uv run calm -a 'how to install git?'` gives `error: no analysis generated; command: brew install git`. This is in our [smart mode eval](tests/eval_smart_mode.py).
 
 ## Packaging
 - [x] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
@@ -68,3 +66,6 @@
   - [ ] Decide which logs belong on stderr vs LaunchAgent log files vs future structured logs.
   - [ ] Also need better messaging during that wait period (what's happeneing? Is a model being downloaded?)
 - [ ] Support custom instructions from users via config file.
+- [ ] Enable / Disable Thinking should be a configurable option.
+  - [ ] With thinking enabled, we will need to handle <think> markers.
+- [ ] Fast model path should be configurable.

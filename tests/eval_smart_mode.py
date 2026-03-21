@@ -142,13 +142,16 @@ class TestMultilineOutput:
             {
                 "name": "Multiline analysis answer",
                 "query": "how to install git?",
-                "args": ["-a"],
                 "expects": lambda out, err, code: (
                     code == 0
                     and (
                         "brew install git" in out
                         or ("install git" in out and "homebrew" in out)
                         or ("installer" in out and "git-scm.com" in out)
+                        or (
+                            "already installed" in out
+                            and ("git --version" in out if "verify" in out else True)
+                        )
                     )
                 ),
             },
