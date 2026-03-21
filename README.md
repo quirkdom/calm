@@ -47,6 +47,62 @@ You can force a specific output type using the `-c` (`--command`) or `-a` (`--an
 
 These flags also act as strict guardrails; if the model provides a mismatched type, the CLI will error out and refuse the output.
 
+## Advanced Use-Cases
+
+`calm` is context-aware. It knows your shell history, your operating system, and whether you are piping data in or out. This enables powerful "expert" workflows.
+
+### 1. History-Aware Refinement
+`calm` automatically reads your last shell command. Use it to fix syntax errors or perform follow-up actions without re-typing long paths or complex arguments.
+```bash
+$ docker run my-app
+# (You realize you forgot to map the port)
+$ calm "add port 8080 to that"
+# ➜ Suggests: docker run -p 8080:8080 my-app
+```
+
+### 2. AI-Powered Git Commits
+Generate high-quality, concise commit messages based on your actual staged changes.
+```bash
+git diff --staged | calm "summarize changes into a short commit message" | git commit -eF -
+```
+
+### 3. Log Surgical Extraction
+Stop struggling with complex `grep | awk | sed` chains. Describe what you want from your logs in plain English.
+```bash
+tail -n 100 /var/log/system.log | calm "extract all unique process names that had a timeout error"
+```
+
+### 4. Interactive Data Transformation
+Quickly transform data formats or extract specific fields for further piping.
+```bash
+cat users.json | calm "extract emails and join them with a semicolon"
+# ➜ user1@example.com;user2@example.com;...
+```
+
+### 5. Smart Process Management & Chaining
+Find and act on processes using natural language. You can even chain `calm` queries together:
+```bash
+calm -y "what's on port 3000" | calm -yf "kill this"
+```
+*(The first query suggests `lsof`, the second reads its output and suggests `kill`)*
+
+You could also <abbr title="Keep It Simple, Stupid">KISS</abbr>:
+```bash
+calm -yf "kill what's on port 3000"
+```
+
+### 6. Codebase Q&A
+Pipe a file to `calm` to get instant insights, bug hunts, or logic explanations.
+```bash
+cat main.py | calm "summarize the daemon lifecycle stages and when requests are accepted"
+```
+
+### 7. Cloud & Infrastructure
+Let `calm` handle the complex CLI flags for cloud providers like AWS, GCP, or Kubernetes.
+```bash
+calm "list all my running EC2 instances in us-east-1 as a markdown table"
+```
+
 ## What's under the hood?
 
 Please read [ARCHITECTURE.md](ARCHITECTURE.md) or [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/quirkdom/calm)
