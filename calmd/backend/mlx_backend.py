@@ -108,7 +108,12 @@ class MLXBackend(InferenceBackend):
     def prefill(self, state: PromptState, tokens: str) -> None:
         state.user_prompt += tokens
 
-    def generate_completion(self, state: PromptState, params: dict[str, Any], prefill: str | None = None) -> str:
+    def generate_completion(
+        self,
+        state: PromptState,
+        params: dict[str, Any],
+        prefill_response: str | None = None,
+    ) -> str:
         if self.model is None or self.tokenizer is None or self._generate_fn is None:
             raise RuntimeError("Model is not loaded")
 
@@ -129,20 +134,9 @@ class MLXBackend(InferenceBackend):
         full_tokens = self._render_chat_tokens(
             system_prompt=state.system_prompt,
             user_prompt=state.user_prompt,
-            add_generation_prompt=True,
+            add_generation_prompt=(prefill_response is None),
+            assistant_prefill=prefill_response,
         )
-
-        if prefill:
-            prefill_tokens = self.tokenizer.encode(prefill)
-            # MLX TokenizerWrapper.encode often adds BOS. Strip if present and not first in full_tokens.
-            if (
-                full_tokens
-                and prefill_tokens
-                and hasattr(self.tokenizer, "bos_token_id")
-                and prefill_tokens[0] == self.tokenizer.bos_token_id
-            ):
-                prefill_tokens = prefill_tokens[1:]
-            full_tokens.extend(prefill_tokens)
 
         started = time.perf_counter()
         prompt_cache = state.prompt_cache
@@ -184,14 +178,18 @@ class MLXBackend(InferenceBackend):
             "model_family": "qwen3.5" if self._is_qwen35_model else "other",
             "thinking_disabled": self._is_qwen35_model,
         }
-        if prefill:
-            output = prefill + output
+        if prefill_response:
+            output = prefill_response + output
 
         truncated, _ = _truncate_at_stop(output, stop_sequences)
         return truncated
 
     def _render_chat_tokens(
-        self, system_prompt: str, user_prompt: str, add_generation_prompt: bool
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        add_generation_prompt: bool,
+        assistant_prefill: str | None = None,
     ) -> list[int]:
         if self.tokenizer is None:
             raise RuntimeError("Model is not loaded")
@@ -202,9 +200,18 @@ class MLXBackend(InferenceBackend):
             if user_prompt:
                 messages.append({"role": "user", "content": user_prompt})
 
+            continue_final_message = False
+            if assistant_prefill:
+                messages.append({"role": "assistant", "content": assistant_prefill})
+                # If prefilling, we don't want the generation prompt (which adds the
+                # assistant header again) and we want to continue the message.
+                add_generation_prompt = False
+                continue_final_message = True
+
             template_kwargs: dict[str, Any] = {
                 "tokenize": True,
                 "add_generation_prompt": add_generation_prompt,
+                "continue_final_message": continue_final_message,
             }
             if self._is_qwen35_model:
                 template_kwargs["enable_thinking"] = False
@@ -215,6 +222,8 @@ class MLXBackend(InferenceBackend):
             return [int(token) for token in cast(list[int], rendered)]
 
         raw_prompt = f"{system_prompt}\n\n{user_prompt}".strip()
+        if assistant_prefill:
+            raw_prompt += f"{assistant_prefill}"
         return cast(list[int], self.tokenizer.encode(raw_prompt))
 
     def _prefill_prompt_cache(self, prompt_tokens: list[int]) -> Any | None:

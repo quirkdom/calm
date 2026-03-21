@@ -1,38 +1,6 @@
-import shlex
-import subprocess
-
 import pytest
 
-
-@pytest.fixture
-def verbose_runs(request):
-    # Enable if the custom flag is set OR if pytest verbosity is at least 2 (-vv)
-    return request.config.getoption("verbose") >= 2
-
-
-def run_calm(query, stdin=None, args=None):
-    cmd = ["uv", "run", "calm"]
-    if args:
-        cmd.extend(args)
-    cmd.append(query)
-
-    process = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE if stdin is not None else None,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    stdout, stderr = process.communicate(input=stdin)
-    return stdout.strip(), stderr.strip(), process.returncode, shlex.join(cmd)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def setup_daemon():
-    # Ensure any existing daemon is stopped so tests start clean
-    subprocess.run(["pkill", "-f", "calmd"], capture_output=True)
-    yield
-    subprocess.run(["pkill", "-f", "calmd"], capture_output=True)
+from tests.conftest import run_calm
 
 
 def verify_smart_mode(test_case, verbose_runs=False):

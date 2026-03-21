@@ -27,6 +27,6 @@ class InferenceBackend(ABC):
 
     @abstractmethod
     def generate_completion(
-        self, state: Any, params: dict[str, Any], prefill: str | None = None
+        self, state: Any, params: dict[str, Any], prefill_response: str | None = None
     ) -> str:
         raise NotImplementedError

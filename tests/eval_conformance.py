@@ -41,7 +41,8 @@ def daemon():
         os.unlink(SOCKET_PATH)
 
     env = os.environ.copy()
-    env["CALMD_PREFILL_COMPLETION"] = "1"
+    # Abhishek's flag name: CALMD_DISABLE_PREFILL_COMPLETION=0
+    env["CALMD_DISABLE_PREFILL_COMPLETION"] = "0"
     env["CALMD_SKIP_WARMUP"] = "1"
 
     # Start daemon
