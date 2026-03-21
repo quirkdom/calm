@@ -3,8 +3,8 @@ class Calm < Formula
 
   desc "Terminal-native CLI assistant backed by a local calmd daemon"
   homepage "https://github.com/quirkdom/calm"
-  url "https://files.pythonhosted.org/packages/39/de/dfaf2e958426fb5f261dddb8d15506c4701cf56d00ec941f700f47131489/calm_cli-0.3.0.tar.gz"
-  sha256 "1f08a3f66360d7c0e1f782c4242c60a1b57b6c8e3b35bb1d5a5ad7eb85fc4cb8"
+  url "https://files.pythonhosted.org/packages/c0/84/7e7c968a6aa0e10f0eaa58d18c163fe33e278fc4de46f196811b3551b230/calm_cli-0.4.0.tar.gz"
+  sha256 "7dc7878d1cc2144017ac397b3648390a1d1e3c833d441c5e734e3e1ef03af8c6"
   license "MIT"
 
   depends_on arch: :arm64
@@ -67,8 +67,8 @@ class Calm < Formula
   end
 
   resource "calm-cli" do
-    url "https://files.pythonhosted.org/packages/24/99/003fa88b0a6e66b7c49e9c45bed32da3305ac3f018fc4089696df7bb3ee9/calm_cli-0.3.0-py3-none-any.whl"
-    sha256 "be0bd30d7c87b21823b013d2b8323cdf9d16ffec5e19f48d233843bd90970d7e"
+    url "https://files.pythonhosted.org/packages/79/e7/b87defc6eede03800dacfa502dee8816d316cb5197e8e1e10366350f5e61/calm_cli-0.4.0-py3-none-any.whl"
+    sha256 "b7672980e8a39637c0d26db91647199ece50c2f7a1c7f8aea32387aa946720c8"
   end
 
   resource "annotated-doc" do
