@@ -16,7 +16,7 @@ def test_read_recent_history_commands_prefers_current_shell_and_skips_calm(
             [
                 "- cmd: ls",
                 "  when: 1",
-                "- cmd: uv run calm \"what changed\"",
+                '- cmd: uv run calm "what changed"',
                 "  when: 2",
                 "- cmd: git status",
                 "  when: 3",
@@ -52,11 +52,7 @@ def test_format_history_context_includes_last_and_recent_commands(
     history = cli.format_history_context(limit=5)
 
     assert history == (
-        "Last Command:\nls -la\n\n"
-        "Last 3 Commands:\n"
-        "1. ls -la\n"
-        "2. git status\n"
-        "3. pwd"
+        "Last Command:\nls -la\n\nLast 3 Commands:\n1. ls -la\n2. git status\n3. pwd"
     )
 
 

@@ -41,7 +41,6 @@ def daemon():
         os.unlink(SOCKET_PATH)
 
     env = os.environ.copy()
-    # Abhishek's flag name: CALMD_DISABLE_PREFILL_COMPLETION=0
     env["CALMD_DISABLE_PREFILL_COMPLETION"] = "0"
     env["CALMD_SKIP_WARMUP"] = "1"
 
@@ -110,7 +109,3 @@ def test_prefill_conformance(query, expected_type):
     assert re.search(
         rf"\[TYPE:\s*{expected_type.upper()}\]", res["raw_output"], re.IGNORECASE
     ), f"Expected [TYPE: {expected_type.upper()}] in raw output"
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])

@@ -522,7 +522,9 @@ class CalmdServer:
             force_analysis=req.get("force_analysis", False),
         )
         self._log(f"smart prompt:\n{prompt}")
-        prefill_response = "[TYPE:" if not self.config.disable_prefill_completion else None
+        prefill_response = (
+            "[TYPE:" if not self.config.disable_prefill_completion else None
+        )
         with self._backend_lock:
             backend.prefill(state, prompt)
             raw = backend.generate_completion(
