@@ -22,6 +22,8 @@ def test_read_recent_history_commands_prefers_current_shell_and_skips_calm(
                 "  when: 3",
                 "- cmd: pytest -q",
                 "  when: 4",
+                "- cmd: ls | calm 'summarize'",
+                "  when: 5",
             ]
         ),
         encoding="utf-8",
@@ -59,3 +61,37 @@ def test_format_history_context_includes_last_and_recent_commands(
 def test_parse_bash_history_ignores_timestamp_lines() -> None:
     assert cli._parse_bash_history("#1712345678") is None
     assert cli._parse_bash_history("git status") == "git status"
+
+
+def test_looks_like_calm_invocation_comprehensive():
+    # Basic
+    assert cli._looks_like_calm_invocation("calm 'test'") is True
+    assert cli._looks_like_calm_invocation("calmd --status") is True
+
+    # Piped
+    assert cli._looks_like_calm_invocation("ls | calm 'summarize'") is True
+    assert cli._looks_like_calm_invocation("calm 'search' | grep 'foo'") is True
+
+    # Full path
+    assert cli._looks_like_calm_invocation("/usr/local/bin/calm 'hello'") is True
+
+    # Malformed
+    assert cli._looks_like_calm_invocation("calm 'unbalanced quote") is True
+
+    # Env vars and sudo
+    assert cli._looks_like_calm_invocation("DEBUG=1 calm 'test'") is True
+    assert cli._looks_like_calm_invocation("sudo calm 'test'") is True
+    assert cli._looks_like_calm_invocation("FOO=bar sudo DEBUG=1 /usr/bin/calmd") is True
+
+    # Wrappers
+    assert cli._looks_like_calm_invocation("python3 -m calm 'test'") is True
+    assert cli._looks_like_calm_invocation("uv run calm 'test'") is True
+    assert cli._looks_like_calm_invocation("uv run /path/to/calmd") is True
+    assert cli._looks_like_calm_invocation("uv tool run calm -h") is True
+    assert cli._looks_like_calm_invocation("uvx --from calm-cli calm -h") is True
+    assert cli._looks_like_calm_invocation("pipx run --spec calm-cli calm -h") is True
+
+    # Not calm
+    assert cli._looks_like_calm_invocation("git commit -m 'fixed calm bug'") is False
+    assert cli._looks_like_calm_invocation("grep 'calm' file.txt") is False
+    assert cli._looks_like_calm_invocation("echo calm") is False

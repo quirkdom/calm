@@ -172,30 +172,154 @@ def _normalize_command(command: str) -> str:
     return " ".join(command.split())
 
 
-def _looks_like_calm_invocation(command: str) -> bool:
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return False
+def _tokenize_shell(command: str) -> list[str]:
+    # A robust shell-like tokenizer that handles unbalanced quotes by treating
+    # the rest of the string as part of the last token.
+    tokens = []
+    current = []
+    quote = None
+    escaped = False
 
-    while tokens and "=" in tokens[0] and not tokens[0].startswith(("/", "./")):
-        name, _, value = tokens[0].partition("=")
-        if name and value:
-            tokens = tokens[1:]
+    # Operators we care about for identifying command boundaries
+    operators = {"|", ";", "&", ">", "<"}
+
+    i = 0
+    while i < len(command):
+        char = command[i]
+        if escaped:
+            current.append(char)
+            escaped = False
+            i += 1
+            continue
+
+        if char == "\\":
+            escaped = True
+            i += 1
+            continue
+
+        if quote:
+            if char == quote:
+                quote = None
+            else:
+                current.append(char)
+            i += 1
+            continue
+
+        if char in ("'", '"'):
+            quote = char
+            i += 1
+            continue
+
+        if char.isspace():
+            if current:
+                tokens.append("".join(current))
+                current = []
+            i += 1
+            continue
+
+        if char in operators:
+            if current:
+                tokens.append("".join(current))
+                current = []
+
+            # Check for two-char operators
+            if i + 1 < len(command) and command[i : i + 2] in {"&&", "||", ">>", "<<"}:
+                tokens.append(command[i : i + 2])
+                i += 2
+            else:
+                tokens.append(char)
+                i += 1
+            continue
+
+        current.append(char)
+        i += 1
+
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _is_calm_command(tokens: list[str]) -> bool:
+    # Skip environment variables and sudo
+    idx = 0
+    while idx < len(tokens):
+        token = tokens[idx]
+        if "=" in token and not token.startswith(("/", "./")):
+            idx += 1
+            continue
+        if token == "sudo":
+            idx += 1
             continue
         break
 
+    if idx >= len(tokens):
+        return False
+
+    cmd_path = tokens[idx]
+    cmd = os.path.basename(cmd_path)
+
+    if cmd in ("calm", "calmd"):
+        return True
+
+    # python -m calm
+    if (cmd == "python" or cmd.startswith("python")) and idx + 2 < len(tokens):
+        if tokens[idx + 1] == "-m" and os.path.basename(tokens[idx + 2]) in (
+            "calm",
+            "calmd",
+        ):
+            return True
+
+    # Check for other wrappers: uv run, uv tool run, uvx, pipx run
+    is_wrapper = False
+    start_search = -1
+
+    if cmd == "uvx":
+        is_wrapper = True
+        start_search = idx + 1
+    elif cmd == "pipx" and idx + 1 < len(tokens) and tokens[idx + 1] == "run":
+        is_wrapper = True
+        start_search = idx + 2
+    elif cmd == "uv" and idx + 1 < len(tokens):
+        if tokens[idx + 1] == "run":
+            is_wrapper = True
+            start_search = idx + 2
+        elif (
+            tokens[idx + 1] == "tool"
+            and idx + 2 < len(tokens)
+            and tokens[idx + 2] == "run"
+        ):
+            is_wrapper = True
+            start_search = idx + 3
+
+    if is_wrapper:
+        for i in range(start_search, len(tokens)):
+            if os.path.basename(tokens[i]) in ("calm", "calmd"):
+                return True
+
+    return False
+
+
+def _looks_like_calm_invocation(command: str) -> bool:
+    tokens = _tokenize_shell(command)
     if not tokens:
         return False
-    if tokens[0] == "calm":
-        return True
-    if (
-        len(tokens) >= 3
-        and tokens[0] == "uv"
-        and tokens[1] == "run"
-        and tokens[2] == "calm"
-    ):
-        return True
+
+    # Split tokens into separate commands by shell operators
+    commands = []
+    current_cmd = []
+    for token in tokens:
+        if token in {"|", ";", "&&", "||"}:
+            if current_cmd:
+                commands.append(current_cmd)
+                current_cmd = []
+        else:
+            current_cmd.append(token)
+    if current_cmd:
+        commands.append(current_cmd)
+
+    for cmd_tokens in commands:
+        if _is_calm_command(cmd_tokens):
+            return True
     return False
 
 
@@ -510,7 +634,7 @@ def terminate_daemon(force: bool) -> int:
         print(message)
         return 0
     print(
-        "error: custom calmd LaunchAgent is not installed; `calm -d stop` only manages the LaunchAgent",
+        "error: custom calmd LaunchAgent is not installed; run `calm -d install` first",
         file=sys.stderr,
     )
     return 1
