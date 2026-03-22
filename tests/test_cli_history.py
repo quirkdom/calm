@@ -87,6 +87,9 @@ def test_looks_like_calm_invocation_comprehensive():
     assert cli._looks_like_calm_invocation("python3 -m calm 'test'") is True
     assert cli._looks_like_calm_invocation("uv run calm 'test'") is True
     assert cli._looks_like_calm_invocation("uv run /path/to/calmd") is True
+    assert cli._looks_like_calm_invocation("uv tool run calm -h") is True
+    assert cli._looks_like_calm_invocation("uvx --from calm-cli calm -h") is True
+    assert cli._looks_like_calm_invocation("pipx run --spec calm-cli calm -h") is True
 
     # Not calm
     assert cli._looks_like_calm_invocation("git commit -m 'fixed calm bug'") is False

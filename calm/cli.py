@@ -260,7 +260,7 @@ def _is_calm_command(tokens: list[str]) -> bool:
     if cmd in ("calm", "calmd"):
         return True
 
-    # Check for wrappers
+    # python -m calm
     if (cmd == "python" or cmd.startswith("python")) and idx + 2 < len(tokens):
         if tokens[idx + 1] == "-m" and os.path.basename(tokens[idx + 2]) in (
             "calm",
@@ -268,12 +268,32 @@ def _is_calm_command(tokens: list[str]) -> bool:
         ):
             return True
 
-    if cmd == "uv" and idx + 2 < len(tokens):
-        if tokens[idx + 1] == "run" and os.path.basename(tokens[idx + 2]) in (
-            "calm",
-            "calmd",
+    # Check for other wrappers: uv run, uv tool run, uvx, pipx run
+    is_wrapper = False
+    start_search = -1
+
+    if cmd == "uvx":
+        is_wrapper = True
+        start_search = idx + 1
+    elif cmd == "pipx" and idx + 1 < len(tokens) and tokens[idx + 1] == "run":
+        is_wrapper = True
+        start_search = idx + 2
+    elif cmd == "uv" and idx + 1 < len(tokens):
+        if tokens[idx + 1] == "run":
+            is_wrapper = True
+            start_search = idx + 2
+        elif (
+            tokens[idx + 1] == "tool"
+            and idx + 2 < len(tokens)
+            and tokens[idx + 2] == "run"
         ):
-            return True
+            is_wrapper = True
+            start_search = idx + 3
+
+    if is_wrapper:
+        for i in range(start_search, len(tokens)):
+            if os.path.basename(tokens[i]) in ("calm", "calmd"):
+                return True
 
     return False
 
