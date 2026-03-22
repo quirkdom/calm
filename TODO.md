@@ -10,7 +10,7 @@
 - [ ] Revisit guardrails (`-c` and `-a`).
   - [ ] For example, `uv run calm -a 'how to install git?'` gives `error: no analysis generated; command: brew install git`. This is in our [smart mode eval](tests/eval_smart_mode.py).
   - [ ] Another case: `calm -c 'find commits by Abhishek'` gives `error: no command generated; analysis: To find commits by Abhishek, use: git log --author="Abhishek" --pretty=format:"%H %s"`
-- [ ] Some `calm` commands are passing through into shell history context. e.g.
+- [x] Some `calm` commands are passing through into shell history context. e.g.
     ```
     Last Command:
     calm -c 'find commits by Abhishek. make it pipeable' | calm 'what\'s the most common word in this'
@@ -25,6 +25,15 @@
 - [ ] Qwen-3.5 generates a lot of commands with `runnable: no` annotation, even though they are perfectly runnable
   - `calm -y "what's on port 3000" | calm -y "kill this"`
   - `calm "list all my S3 buckets and what their size is"`
+- [ ] Qwen-3.5 is oversmart / lazy when given previous commands context (more context is worse?). e.g.
+    ```
+    > git branch --merged
+    * master
+    > uv run calm 'list branches which are merged'
+    The branches which are merged are listed in the output of the last command `git branch --merged`.         <-- should have just returned the command as runnable
+    > uv run calm 'list branches which are merged' | uv run calm 'delete them'
+    git branch --merged | grep -v "\*" | xargs git branch -D               <-- first invocation returns the analysis, second invocation returns non runnable command based on that
+    ```
 - [ ] Fix tokenizer stop tokens. Tokenizer stops at `[/CONTENT]` so content misses closing tags.
 
 ## Packaging
