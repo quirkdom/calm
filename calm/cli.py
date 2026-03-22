@@ -7,6 +7,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -294,6 +295,34 @@ def is_dangerous(command: str) -> bool:
     ):
         return True
     return False
+
+
+def copy_to_clipboard(text: str) -> bool:
+    try:
+        process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE, close_fds=True)
+        process.communicate(input=text.encode("utf-8"))
+        return process.returncode == 0
+    except OSError:
+        return False
+
+
+def edit_command(command: str) -> str | None:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    with tempfile.NamedTemporaryFile(suffix=".sh", mode="w+", delete=False) as tf:
+        tf.write(command)
+        tf.flush()
+        temp_path = tf.name
+
+    try:
+        proc = subprocess.run(f"{editor} {shlex.quote(temp_path)}", shell=True)
+        if proc.returncode == 0:
+            return Path(temp_path).read_text(encoding="utf-8").strip()
+        return None
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
 
 
 def execute_command(command: str) -> int:
@@ -632,11 +661,25 @@ def main() -> int:
 
     should_run = args.yolo
     # Only prompt if stdout is a terminal (so we don't corrupt the pipe)
-    # AND stdin is a terminal (so we can actually read the user's y/n).
+    # AND stdin is a terminal (so we can actually read the user's input).
     if not should_run and sys.stdout.isatty() and sys.stdin.isatty():
         try:
-            answer = input("\nRun this command? [y/N] ").strip().lower()
-            should_run = answer in {"y", "yes"}
+            answer = input("\nRun this command? [y/N/c/e] ").strip().lower()
+            if answer in {"y", "yes"}:
+                should_run = True
+            elif answer in {"c", "copy"}:
+                if copy_to_clipboard(content):
+                    print("Command copied to clipboard.")
+                else:
+                    print("error: failed to copy to clipboard", file=sys.stderr)
+                return 0
+            elif answer in {"e", "edit"}:
+                edited_content = edit_command(content)
+                if edited_content:
+                    content = edited_content
+                    should_run = True
+                else:
+                    return 0
         except EOFError:
             pass
 
