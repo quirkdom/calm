@@ -46,8 +46,11 @@ ps aux | uv run calm "summarize high memory users"
 # Run evaluation tests
 uv run pytest tests/eval_*.py
 
+# Run other tests
+uv run pytest tests/test_*.py
+
 # Run with debug output
-uv run pytest tests/eval_*.py --vv -s
+uv run pytest tests/ --vv -s    # --vv for custom verbose output, -s to prevent I/O capture
 ```
 
 ### Quality Checks
