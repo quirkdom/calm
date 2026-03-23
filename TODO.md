@@ -96,3 +96,6 @@
 - [ ] Enable / Disable Thinking should be a configurable option.
   - [ ] With thinking enabled, we will need to handle <think> markers.
 - [ ] Fast model path should be configurable.
+
+## Chores
+- [ ] Simplify repetitive `x = foo(); if x is not None: return x` patterns into direct fallback expressions like `return foo() or bar()` where no extra logic is needed.
