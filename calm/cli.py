@@ -15,6 +15,7 @@ from pathlib import Path
 from calm.config import load_calm_cli_config
 from calm.platform_support import ensure_supported_runtime
 from calm.service import (
+    ManagedService,
     debug_enabled,
     debug_log,
     find_custom_service,
@@ -463,10 +464,10 @@ def ensure_daemon_running() -> None:
     last_note = 0.0
     last_status = ""
     if health is None:
-        print("waiting for calmd (starting)...", file=sys.stderr)
+        startup_note = start_calmd(skip_warmup=True)
+        print(f"waiting for calmd ({startup_note})...", file=sys.stderr)
         last_note = time.time()
         last_status = "starting"
-        start_calmd(skip_warmup=True)
 
     deadline = time.time() + config.wait_timeout_secs
     while time.time() < deadline:
@@ -522,18 +523,24 @@ def _check_daemon_health() -> dict | None:
         return {"status": "initializing", "message": "invalid health response"}
 
 
-def start_calmd(skip_warmup: bool = False) -> None:
+def start_calmd(skip_warmup: bool = False) -> str:
     started_at = time.monotonic()
     if debug_enabled():
         debug_log(f"start_calmd entered skip_warmup={skip_warmup}")
     service = find_homebrew_service() or find_custom_service()
     if service is not None:
+        if debug_enabled():
+            trigger = "auto-triggered query startup" if skip_warmup else "explicit managed startup"
+            debug_log(f"{trigger} selected service source={service.source}")
         status, message = start_service(skip_warmup=skip_warmup, service=service)
         if status == 0:
+            startup_note = _startup_note_for_service(
+                service, skip_warmup=skip_warmup
+            )
             debug_log(
                 f"managed start completed elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
             )
-            return
+            return startup_note
         print(
             f"warning: failed to start managed calmd ({message}); falling back",
             file=sys.stderr,
@@ -548,6 +555,7 @@ def start_calmd(skip_warmup: bool = False) -> None:
     if skip_warmup:
         env["CALMD_SKIP_WARMUP"] = "1"
 
+    debug_log(f"starting unmanaged calmd cmd={cmd!r} skip_warmup={skip_warmup}")
     subprocess.Popen(
         cmd,
         env=env,
@@ -560,6 +568,19 @@ def start_calmd(skip_warmup: bool = False) -> None:
     debug_log(
         f"unmanaged start launched cmd={cmd!r} elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
     )
+    return "starting via detached process"
+
+
+def _startup_note_for_service(service: ManagedService, skip_warmup: bool) -> str:
+    if service.source == "homebrew":
+        return (
+            "starting via Homebrew run"
+            if skip_warmup
+            else "starting via Homebrew service"
+        )
+    if service.source == "launchd":
+        return "starting via LaunchAgent"
+    return f"starting via {service.source}"
 
 
 def daemon_is_running() -> bool:
