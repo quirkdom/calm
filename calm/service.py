@@ -217,9 +217,7 @@ def _label_from_plist(plist_path: Path) -> str | None:
     return label if isinstance(label, str) and label else None
 
 
-def _start_homebrew_service(
-    service: ManagedService, register: bool
-) -> tuple[int, str]:
+def _start_homebrew_service(service: ManagedService, register: bool) -> tuple[int, str]:
     brew_name = service.name or HOMEBREW_FORMULA_NAME
     subcommand = "start" if register else "run"
     debug_log(

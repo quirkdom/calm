@@ -530,13 +530,15 @@ def start_calmd(skip_warmup: bool = False) -> str:
     service = find_homebrew_service() or find_custom_service()
     if service is not None:
         if debug_enabled():
-            trigger = "auto-triggered query startup" if skip_warmup else "explicit managed startup"
+            trigger = (
+                "auto-triggered query startup"
+                if skip_warmup
+                else "explicit managed startup"
+            )
             debug_log(f"{trigger} selected service source={service.source}")
         status, message = start_service(skip_warmup=skip_warmup, service=service)
         if status == 0:
-            startup_note = _startup_note_for_service(
-                service, skip_warmup=skip_warmup
-            )
+            startup_note = _startup_note_for_service(service, skip_warmup=skip_warmup)
             debug_log(
                 f"managed start completed elapsed_ms={int((time.monotonic() - started_at) * 1000)}"
             )

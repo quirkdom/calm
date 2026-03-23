@@ -166,7 +166,9 @@ def test_run_brew_falls_back_to_cached_known_path(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(service.subprocess, "run", fake_run)
-    monkeypatch.setattr(service.Path, "exists", lambda self: str(self) == "/opt/homebrew/bin/brew")
+    monkeypatch.setattr(
+        service.Path, "exists", lambda self: str(self) == "/opt/homebrew/bin/brew"
+    )
 
     result_one = service._run_brew(["services", "run", "calm"])
     result_two = service._run_brew(["services", "start", "calm"])

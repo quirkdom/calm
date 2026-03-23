@@ -81,7 +81,9 @@ def test_looks_like_calm_invocation_comprehensive():
     # Env vars and sudo
     assert cli._looks_like_calm_invocation("DEBUG=1 calm 'test'") is True
     assert cli._looks_like_calm_invocation("sudo calm 'test'") is True
-    assert cli._looks_like_calm_invocation("FOO=bar sudo DEBUG=1 /usr/bin/calmd") is True
+    assert (
+        cli._looks_like_calm_invocation("FOO=bar sudo DEBUG=1 /usr/bin/calmd") is True
+    )
 
     # Wrappers
     assert cli._looks_like_calm_invocation("python3 -m calm 'test'") is True
