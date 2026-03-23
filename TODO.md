@@ -2,7 +2,7 @@
 
 ## Bugs
 - [x] Fix generation rails - the generated text is not in the correct format, hence mostly unparseable.
-- [ ] Improve Homebrew services detection and handling. Currently, when installed via brew, `calm` cannot detect a registered Homebrew service to trigger.
+- [x] Improve Homebrew services detection and handling. Currently, when installed via brew, `calm` cannot detect a registered Homebrew service to trigger.
 - [ ] `calm` starts up a new daemon if the daemon is already running but blocked on another request. Should backoff in this case.
 - [ ] Investigate high RAM usage by `calmd` even after offload (> 400MB).
 - [ ] Fix deviation from protocol. e.g. [Codex review discussion](https://github.com/quirkdom/calm/pull/1#discussion_r2943131416)
