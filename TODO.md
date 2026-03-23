@@ -40,7 +40,8 @@
 - [x] Make `calm` and `calmd` installable and distributable via Homebrew and other MacOS-oriented package managers.
   - refer: https://til.simonwillison.net/homebrew/packaging-python-cli-for-homebrew
 - [x] Figure out release workflow with GHA Actions + Github releases + PyPI publish
-- [ ] Figure out homebrew release workflow
+- [x] Figure out homebrew release workflow
+  - [ ] Update tap GHA workflows to make bottles for the calm formula. refer: https://brew.sh/2020/11/18/homebrew-tap-with-bottles-uploaded-to-github-releases/
 - [x] Don't package unncessary docs, benchmarks or tests.
 
 ## `calmd` Daemon improvements
