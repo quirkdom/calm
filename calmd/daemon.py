@@ -530,15 +530,29 @@ class CalmdServer:
             raw = backend.generate_completion(
                 state,
                 {
-                    "max_tokens": 256,
+                    "max_tokens": 2048 if self.config.enable_thinking else 256,
                     "temperature": 0.1,
                     "stop": [
                         "[/CONTENT]",
                         "<|endoftext|>",
                         "<|im_start|>",
-                        "<think>",
-                        "</think>",
-                    ],
+                    ]
+                    + (
+                        []
+                        if self.config.enable_thinking
+                        else [
+                            "<think>",
+                            "</think>",
+                            "<thinking>",
+                            "</thinking>",
+                            "<thought>",
+                            "</thought>",
+                            "<reasoning>",
+                            "</reasoning>",
+                            "<reflection>",
+                            "</reflection>",
+                        ]
+                    ),
                     "verbose": self.verbose,
                 },
                 prefill_response=prefill_response,
@@ -676,8 +690,12 @@ class CalmdServer:
         inference_ms = metrics.get("inference_ms")
         if inference_ms is None:
             return
-        thinking = metrics.get("thinking_disabled")
-        thinking_flag = f" thinking_disabled={thinking}" if thinking is not None else ""
+        thinking_enabled = metrics.get("thinking_enabled")
+        thinking_flag = (
+            f" thinking_enabled={thinking_enabled}"
+            if thinking_enabled is not None
+            else ""
+        )
         self._log(
             f"{mode} inference_ms={inference_ms} "
             f"model_family={metrics.get('model_family', 'unknown')}{thinking_flag}"
@@ -733,9 +751,24 @@ def _sanitize_model_text(text: str) -> str:
     cleaned = re.sub(r"<\|im_start\|>.*$", "", cleaned, flags=re.DOTALL)
     cleaned = re.sub(r"<\|im_end\|>.*$", "", cleaned, flags=re.DOTALL)
     # Remove hidden reasoning tags if model emits them.
-    cleaned = re.sub(r"<think>[\s\S]*?</think>", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"<think>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"</think>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"<(think|thinking|thought|reasoning|reflection)>[\s\S]*?</\1>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"<(think|thinking|thought|reasoning|reflection)>[\s\S]*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"</(think|thinking|thought|reasoning|reflection)>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     return cleaned.strip()
 
 

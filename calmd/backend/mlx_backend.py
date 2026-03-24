@@ -36,6 +36,7 @@ class MLXBackend(InferenceBackend):
         self._is_qwen35_model = False
         self._disable_prefix_cache = resolved_config.disable_prefix_cache
         self._max_kv_size = resolved_config.max_kv_size
+        self.config = resolved_config
 
     def load_model(self, model_path: str) -> None:
         from mlx_lm import generate, load  # type: ignore
@@ -176,7 +177,7 @@ class MLXBackend(InferenceBackend):
         self.last_metrics = {
             "inference_ms": elapsed_ms,
             "model_family": "qwen3.5" if self._is_qwen35_model else "other",
-            "thinking_disabled": self._is_qwen35_model,
+            "thinking_enabled": self.config.enable_thinking,
         }
         if prefill_response:
             output = prefill_response + output
@@ -212,9 +213,8 @@ class MLXBackend(InferenceBackend):
                 "tokenize": True,
                 "add_generation_prompt": add_generation_prompt,
                 "continue_final_message": continue_final_message,
+                "enable_thinking": self.config.enable_thinking,
             }
-            if self._is_qwen35_model:
-                template_kwargs["enable_thinking"] = False
 
             rendered = apply_chat_template(messages, **template_kwargs)
             if hasattr(rendered, "tolist"):
