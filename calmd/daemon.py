@@ -530,7 +530,7 @@ class CalmdServer:
             raw = backend.generate_completion(
                 state,
                 {
-                    "max_tokens": 4096 if self.config.enable_thinking else 256,
+                    "max_tokens": 2048 if self.config.enable_thinking else 256,
                     "temperature": 0.1,
                     "stop": [
                         "[/CONTENT]",
