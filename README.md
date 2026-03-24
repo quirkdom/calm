@@ -135,6 +135,7 @@ idle_offload_secs = 450
 disable_prefix_cache = false
 max_kv_size = 4096
 disable_prefill_completion = false
+enable_thinking = false  # Warning: enabling thinking can make generations much slower.
 ```
 
 For the full list of environment variable overrides, local development commands, and benchmark instructions, see [DEVELOPMENT.md](DEVELOPMENT.md).

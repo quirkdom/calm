@@ -55,7 +55,7 @@
   - Consider renaming to `append_user_content()` and moving `_render_chat_tokens` calls from `generate_completion` to this step
   - This would create a clear separation: prefill step prepares tokenized prompt state, generate_completion handles (implicit) KV cache update and token generation
 - [ ] Speed up inference
-  - [x] Disable thinking, especially in Qwen-3.5 models.
+  - [x] Thinking disabled by default, configurable.
   - [x] KV caching for static system prompts.
   - [ ] ~~Reuse prompt prefill across samples.~~
   - [x] Truncate / cap stdin for analysis use-case. (Possibly provide a flag / ENV var to override that)
@@ -95,7 +95,7 @@
   - [ ] Also need better messaging during that wait period (what's happeneing? Is a model being downloaded?)
 - [ ] Support custom instructions from users via config file.
 - [ ] Enable / Disable Thinking should be a configurable option.
-  - [ ] With thinking enabled, we will need to handle <think> markers.
+  - [x] With thinking enabled, we will need to handle <think> markers.
 - [ ] Fast model path should be configurable.
 
 ## Chores
