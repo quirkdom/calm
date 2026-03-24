@@ -543,6 +543,8 @@ class CalmdServer:
                         else [
                             "<think>",
                             "</think>",
+                            "<thinking>",
+                            "</thinking>",
                             "<thought>",
                             "</thought>",
                             "<reasoning>",
@@ -749,10 +751,24 @@ def _sanitize_model_text(text: str) -> str:
     cleaned = re.sub(r"<\|im_start\|>.*$", "", cleaned, flags=re.DOTALL)
     cleaned = re.sub(r"<\|im_end\|>.*$", "", cleaned, flags=re.DOTALL)
     # Remove hidden reasoning tags if model emits them.
-    for tag in ("think", "thought", "reasoning", "reflection"):
-        cleaned = re.sub(rf"<{tag}>[\s\S]*?</{tag}>", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(rf"<{tag}>[\s\S]*$", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(rf"</{tag}>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"<(think|thinking|thought|reasoning|reflection)>[\s\S]*?</\1>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"<(think|thinking|thought|reasoning|reflection)>[\s\S]*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"</(think|thinking|thought|reasoning|reflection)>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     return cleaned.strip()
 
 

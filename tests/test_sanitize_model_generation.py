@@ -3,19 +3,19 @@ import pytest
 from calmd.daemon import _sanitize_model_text
 
 
-@pytest.mark.parametrize("tag", ["think", "thought", "reasoning", "reflection"])
+@pytest.mark.parametrize("tag", ["think", "thinking", "thought", "reasoning", "reflection"])
 def test_sanitize_removes_complete_tags(tag):
     input_text = f"<{tag}>Thinking about this...\nAnd that...</{tag}>\nFinal answer is 42."
     expected = "Final answer is 42."
     assert _sanitize_model_text(input_text) == expected
 
-@pytest.mark.parametrize("tag", ["think", "thought", "reasoning", "reflection"])
+@pytest.mark.parametrize("tag", ["think", "thinking", "thought", "reasoning", "reflection"])
 def test_sanitize_removes_unclosed_tags_at_end(tag):
     input_text = f"Final answer is 42.<{tag}>Hmm, wait..."
     expected = "Final answer is 42."
     assert _sanitize_model_text(input_text) == expected
 
-@pytest.mark.parametrize("tag", ["think", "thought", "reasoning", "reflection"])
+@pytest.mark.parametrize("tag", ["think", "thinking", "thought", "reasoning", "reflection"])
 def test_sanitize_removes_unopened_end_tags(tag):
     input_text = f"</{tag}>Final answer is 42."
     expected = "Final answer is 42."
